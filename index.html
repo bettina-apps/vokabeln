@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Vokabeln">
@@ -17,6 +17,7 @@
   --safe-top: env(safe-area-inset-top,0px); --safe-bottom: env(safe-area-inset-bottom,0px);
 }
 html,body { height:100%; overflow:hidden; }
+@supports (height: 100dvh) { body { height:100dvh; } }
 body {
   font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--ink);
   display:flex; flex-direction:column; height:100vh; height:-webkit-fill-available;
@@ -212,7 +213,7 @@ body::before {
 
 /* Expanded content */
 .v-body { max-height:0; overflow:hidden; transition:max-height .3s ease; }
-.v-body.open { max-height:600px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+.v-body.open { max-height:50vh; overflow-y:auto; -webkit-overflow-scrolling:touch; }
 .v-body-inner { padding:0 13px 13px; border-top:1px solid var(--border); }
 
 .v-meaning {
@@ -473,16 +474,31 @@ function load() { try { const d = localStorage.getItem('vt_v7'); if(d) vocabs = 
 // ---- TRANSLATE via Cloudflare Worker ----
 const PROXY_URL = 'https://deepl-proxy.bettina-schwender.workers.dev';
 
+async function callProxy(word, definition) {
+  const res = await fetch(PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ word, definition })
+  });
+  if(!res.ok) throw new Error('proxy error ' + res.status);
+  const data = await res.json();
+  return data.translation || null;
+}
+
 async function translate(word, pos, definition) {
   try {
-    const res = await fetch(PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ word, definition })
-    });
-    if(!res.ok) throw new Error('proxy error ' + res.status);
-    const data = await res.json();
-    return data.translation || null;
+    // Make 2 calls: once with definition context, once without
+    const [t1, t2] = await Promise.all([
+      callProxy(word, definition),
+      callProxy(word, null)
+    ]);
+    // Combine unique translations
+    const results = [t1, t2].filter(Boolean).map(t => t.trim());
+    const unique = [...new Set(results.map(t => t.toLowerCase()))].map((low, i) =>
+      results.find(r => r.toLowerCase() === low)
+    );
+    // Apply German capitalization
+    return unique.join(', ') || null;
   } catch(e) {
     console.error('Translation error:', e);
     return null;
