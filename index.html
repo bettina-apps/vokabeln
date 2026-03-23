@@ -438,6 +438,15 @@ body::before {
       <div class="rank-list" id="list-bad"></div>
       <button class="reset-btn" onclick="resetStats()">Statistik zurücksetzen</button>
 
+      <div style="margin-top:24px;padding:14px;background:var(--card-bg);border:1.5px solid var(--border);border-radius:14px;">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">⚙️ DeepL API Key</div>
+        <div id="key-status" style="font-size:13px;color:var(--muted);margin-bottom:8px;"></div>
+        <div style="display:flex;gap:8px;">
+          <input id="settings-key-inp" type="text" placeholder="API Key eingeben…" style="flex:1;padding:9px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg);color:var(--ink);font-size:13px;font-family:monospace;">
+          <button onclick="saveSettingsKey()" style="padding:9px 14px;background:var(--ink);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;">Speichern</button>
+        </div>
+      </div>
+
 
     </div>
 
@@ -470,17 +479,61 @@ let audioUrl = null, acTimer = null, searchLang = 'en';
 function save() { localStorage.setItem('vt_v7', JSON.stringify(vocabs)); }
 function load() { try { const d = localStorage.getItem('vt_v7'); if(d) vocabs = JSON.parse(d); } catch(e){} }
 
-// ---- TRANSLATE via Netlify Function ----
+// ---- DEEPL API KEY MANAGEMENT ----
+function getApiKey() { return localStorage.getItem('deepl_key') || ''; }
+function saveApiKey(k) { localStorage.setItem('deepl_key', k.trim()); }
+
+function showKeyBanner() {
+  if(document.getElementById('key-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'key-banner';
+  banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#1a1814;color:#fff;padding:16px;z-index:999;display:flex;flex-direction:column;gap:10px;';
+  banner.innerHTML = `
+    <div style="font-size:13px;font-weight:600;">🔑 DeepL API Key eingeben</div>
+    <div style="font-size:12px;opacity:.6;">Einmalig nötig. Kostenlos auf deepl.com/pro-api</div>
+    <div style="display:flex;gap:8px;">
+      <input id="key-inp" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx"
+        style="flex:1;padding:9px 12px;border-radius:10px;border:1.5px solid #444;background:#2a2a2a;color:#fff;font-size:14px;font-family:monospace;">
+      <button onclick="applyKey()" style="padding:9px 16px;background:#2c6e49;color:#fff;border:none;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer;">OK</button>
+    </div>`;
+  document.body.appendChild(banner);
+  document.getElementById('key-inp').focus();
+}
+
+function applyKey() {
+  const k = document.getElementById('key-inp').value.trim();
+  if(!k) return;
+  saveApiKey(k);
+  const b = document.getElementById('key-banner');
+  if(b) b.remove();
+}
+
+// ---- TRANSLATE via DeepL (direct browser call) ----
 async function translate(word, pos, definition) {
+  let apiKey = getApiKey();
+  if(!apiKey) { showKeyBanner(); return null; }
+
+  const isFree = apiKey.endsWith(':fx');
+  const host = isFree ? 'api-free.deepl.com' : 'api.deepl.com';
+
   try {
-    const res = await fetch('/.netlify/functions/translate', {
+    const params = new URLSearchParams({ text: word, source_lang: 'EN', target_lang: 'DE' });
+    if(definition) params.append('context', definition);
+
+    const res = await fetch(`https://${host}/v2/translate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ word, pos, definition })
+      headers: {
+        'Authorization': `DeepL-Auth-Key ${apiKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
     });
-    if(!res.ok) throw new Error('proxy error');
+    if(!res.ok) {
+      if(res.status === 403) { showKeyBanner(); return null; }
+      throw new Error('DeepL error ' + res.status);
+    }
     const data = await res.json();
-    return data.translation || null;
+    return data.translations?.[0]?.text || null;
   } catch(e) {
     console.error('Translation error:', e);
     return null;
@@ -1021,6 +1074,28 @@ function resetStats() {
   vocabs.forEach(v=>{v.correct=0;v.wrong=0;}); wrongIds.clear(); save(); renderStats();
 }
 
+function saveSettingsKey() {
+  const k = document.getElementById("settings-key-inp").value.trim();
+  if(!k) return;
+  saveApiKey(k);
+  document.getElementById("settings-key-inp").value = "";
+  updateKeyStatus();
+  alert("API Key gespeichert ✓");
+}
+
+function updateKeyStatus() {
+  const el = document.getElementById("key-status");
+  if(!el) return;
+  const k = getApiKey();
+  if(k) {
+    el.textContent = "✓ Key gespeichert: " + k.slice(0,8) + "…" + (k.endsWith(":fx") ? " (Free)" : "");
+    el.style.color = "var(--accent2)";
+  } else {
+    el.textContent = "Kein Key hinterlegt.";
+    el.style.color = "var(--accent)";
+  }
+}
+
 
 
 // ---- NAV ----
@@ -1032,13 +1107,13 @@ function showView(name, btn) {
   closeAC();
   if(name==='vocabs') renderVocabs();
   if(name==='train') startSession();
-  if(name==='stats') renderStats();
+  if(name==='stats') { renderStats(); updateKeyStatus(); }
 }
 document.addEventListener('click', e=>{ if(!e.target.closest('.search-wrap')) closeAC(); });
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');}
 
-load(); renderVocabs();
+load(); renderVocabs(); if(!getApiKey()) showKeyBanner();
 </script>
 </body>
 </html>
