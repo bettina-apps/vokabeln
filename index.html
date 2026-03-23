@@ -438,9 +438,8 @@ body::before {
       <div class="rank-list" id="list-bad"></div>
       <button class="reset-btn" onclick="resetStats()">Statistik zurücksetzen</button>
 
-    </div>
 
-  </div>
+    </div>
 
   </div>
 </div>
@@ -471,7 +470,557 @@ let audioUrl = null, acTimer = null, searchLang = 'en';
 function save() { localStorage.setItem('vt_v7', JSON.stringify(vocabs)); }
 function load() { try { const d = localStorage.getItem('vt_v7'); if(d) vocabs = JSON.parse(d); } catch(e){} }
 
-// ---- DEEPL API KEY MANAGEMENT ----
+// ---- TRANSLATE via Cloudflare Worker ----
+const PROXY_URL = 'https://deepl-proxy.bettina-schwender.workers.dev';
+
+async function translate(word, pos, definition) {
+  try {
+    const res = await fetch(PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ word, definition })
+    });
+    if(!res.ok) throw new Error('proxy error ' + res.status);
+    const data = await res.json();
+    return data.translation || null;
+  } catch(e) {
+    console.error('Translation error:', e);
+    return null;
+  }
+}
+
+// German: nouns capitalized, verbs/adjectives/adverbs lowercase
+function normalizeDe(t, pos) {
+  // If fully ALLCAPS, normalize to mixed case first
+  if(t === t.toUpperCase() && t.length > 1) {
+    t = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+  }
+  // Handle comma/slash separated alternatives
+  const parts = t.split(/[,;]/).map(p => p.trim()).filter(Boolean);
+  const isNoun = pos && pos.toLowerCase().includes('noun');
+  return parts.map(p => {
+    if(!p) return p;
+    if(isNoun) {
+      // German nouns are capitalized
+      return p.charAt(0).toUpperCase() + p.slice(1);
+    } else {
+      // verbs, adjectives etc. are lowercase
+      return p.charAt(0).toLowerCase() + p.slice(1);
+    }
+  }).join(', ');
+}
+
+// ---- AUTOCOMPLETE ----
+function onInput() {
+  const val = document.getElementById('search-inp').value.trim();
+  closeAC();
+  clearTimeout(acTimer);
+  if(val.length < 2) return;
+  acTimer = setTimeout(async () => {
+    try {
+      const acLang = searchLang === 'de' ? 'de' : 'en';
+      const acUrl = searchLang === 'de'
+        ? `https://api.datamuse.com/words?sp=${encodeURIComponent(val)}*&v=de&max=6`
+        : `https://api.datamuse.com/words?sp=${encodeURIComponent(val)}*&max=6`;
+      const res = await fetch(acUrl);
+      const data = await res.json();
+      const words = data.map(d=>d.word).filter(w=>w.toLowerCase().startsWith(val.toLowerCase()));
+      if(!words.length) return;
+      const list = document.getElementById('ac-list');
+      list.innerHTML = words.map(w =>
+        `<div class="ac-item" onclick="selectAC('${esc(w)}')">`+
+        `<span class="ac-bold">${esc(w.slice(0,val.length))}</span>${esc(w.slice(val.length))}</div>`
+      ).join('');
+      list.classList.add('open');
+    } catch(e){}
+  }, 280);
+}
+function selectAC(w) {
+  document.getElementById('search-inp').value = w;
+  closeAC(); doSearch(w);
+}
+function closeAC() {
+  const l = document.getElementById('ac-list');
+  l.classList.remove('open'); l.innerHTML='';
+}
+function onKey(e) {
+  if(e.key==='Enter'){closeAC();doSearch();}
+  if(e.key==='Escape') closeAC();
+}
+
+function toggleLang() {
+  searchLang = searchLang === 'en' ? 'de' : 'en';
+  const fromEl = document.getElementById('lang-from');
+  const toEl   = document.getElementById('lang-to');
+  const inp    = document.getElementById('search-inp');
+  if(searchLang === 'en') {
+    fromEl.textContent = '🇬🇧 EN';
+    toEl.textContent   = '🇩🇪 DE';
+    inp.placeholder    = 'Englisches Wort suchen…';
+  } else {
+    fromEl.textContent = '🇩🇪 DE';
+    toEl.textContent   = '🇬🇧 EN';
+    inp.placeholder    = 'Deutsches Wort suchen…';
+  }
+  inp.value = '';
+  closeAC();
+  document.getElementById('search-results').innerHTML =
+    `<div class="search-empty"><div class="ei">${searchLang==='en'?'🔍':'🔍'}</div><p>Gib ein ${searchLang==='en'?'englisches':'deutsches'} Wort ein.</p></div>`;
+}
+
+// ---- SEARCH + DICTIONARY ----
+async function doSearch(force) {
+  const q = (force || document.getElementById('search-inp').value.trim()).toLowerCase();
+  if(!q) return;
+  // If DE→EN: translate first, then look up the English word
+  if(searchLang === 'de') { await doSearchDE(q); return; }
+  const area = document.getElementById('search-results');
+  area.innerHTML = `<div class="search-empty"><p>⏳ Suche…</p></div>`;
+  audioUrl = null;
+
+  try {
+    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(q)}`);
+    if(!res.ok) throw new Error('404');
+    const data = await res.json();
+    if(!Array.isArray(data)||!data.length) throw new Error();
+    const entry = data[0];
+
+    let phonetic = entry.phonetic || '';
+    for(const ph of (entry.phonetics||[])) {
+      if(ph.audio && !audioUrl) audioUrl = ph.audio;
+      if(!phonetic && ph.text) phonetic = ph.text;
+    }
+
+    // Gather all meanings (max 6)
+    const meanings = [];
+    for(const m of (entry.meanings||[])) {
+      for(const def of (m.definitions||[]).slice(0,2)) {
+        if(meanings.length >= 6) break;
+        meanings.push({ pos: m.partOfSpeech, definition: def.definition, example: def.example||'' });
+      }
+    }
+
+    const alreadyAll = vocabs.some(v => v.en.toLowerCase() === entry.word.toLowerCase());
+
+    let html = `<div class="word-header">
+      <div class="word-title">${esc(entry.word)}</div>
+      ${phonetic ? `<div class="word-phonetic">${esc(phonetic)}</div>` : ''}
+      ${audioUrl ? `<button class="audio-btn" onclick="playAudio()">🔊 Aussprache</button>` : ''}
+    </div>
+    <button class="add-all-btn ${alreadyAll?'added':''}" id="add-all-btn"
+      onclick="addAllMeanings('${esc(entry.word)}','${esc(phonetic)}')">
+      ${alreadyAll ? '✓ Alle bereits gespeichert' : '＋ Alle Bedeutungen hinzufügen'}
+    </button>`;
+
+    meanings.forEach((m, i) => {
+      html += `<div class="s-meaning">
+        <div class="s-meaning-top">
+          <span class="pos-badge">${esc(m.pos)}</span>
+        </div>
+        <div class="s-de" id="sde_${i}">
+          🇩🇪 <span class="s-de-loading" id="sde-txt_${i}">wird übersetzt…</span>
+        </div>
+        <button class="def-toggle" id="dtog_${i}" onclick="toggleSDef(${i})">
+          <span class="arr">›</span> Englische Definition
+        </button>
+        <div class="def-body" id="dbody_${i}">
+          <div class="def-inner">${esc(m.definition)}
+            ${m.example ? `<div class="def-example">${esc(m.example)}</div>` : ''}
+          </div>
+        </div>
+      </div>`;
+    });
+
+    area.innerHTML = html;
+
+    // Store meanings for addAll
+    area.dataset.word = entry.word;
+    area.dataset.phonetic = phonetic;
+    area.dataset.meanings = JSON.stringify(meanings);
+
+    // Fetch translation per meaning
+    meanings.forEach(async (m, i) => {
+      try {
+        let t = await translate(entry.word, m.pos, m.definition);
+        if(!t) t = await translate(entry.word, m.pos, m.definition);
+        const el = document.getElementById(`sde-txt_${i}`);
+        if(!el) return;
+        el.className = '';
+        el.style.fontFamily = "'Playfair Display',serif";
+        el.style.fontSize = '1.2rem';
+        el.style.fontWeight = '700';
+        el.textContent = t || '–';
+        // store on meanings dataset
+        const stored = JSON.parse(area.dataset.meanings);
+        stored[i].de = t || '';
+        area.dataset.meanings = JSON.stringify(stored);
+        // update add-all button dataset too
+        const btn = document.getElementById('add-all-btn');
+        if(btn) btn.dataset.meanings = area.dataset.meanings;
+      } catch(e) {
+        const el = document.getElementById(`sde-txt_${i}`);
+        if(el) el.textContent = '–';
+      }
+    });
+
+  } catch(e) {
+    area.innerHTML = `<div class="search-error">Kein Eintrag für „${esc(q)}" gefunden.<br>Überprüfe die Schreibweise.</div>`;
+  }
+}
+
+function toggleSDef(i) {
+  const body = document.getElementById(`dbody_${i}`);
+  const tog  = document.getElementById(`dtog_${i}`);
+  if(!body) return;
+  const open = body.classList.toggle('open');
+  tog.classList.toggle('open', open);
+}
+
+function playAudio() { if(audioUrl) new Audio(audioUrl).play().catch(()=>{}); }
+
+async function addAllMeanings(word, phonetic) {
+  const area = document.getElementById('search-results');
+  const meanings = JSON.parse(area.dataset.meanings || '[]');
+
+  // Check if entry exists
+  let entry = vocabs.find(v => v.en.toLowerCase() === word.toLowerCase());
+  if(!entry) {
+    entry = { id: Date.now(), en: word, phonetic, audioUrl: audioUrl||'', meanings: [], correct: 0, wrong: 0 };
+    vocabs.unshift(entry);
+  }
+
+  // Add meanings not yet stored
+  for(const m of meanings) {
+    const exists = entry.meanings.some(em => em.definition === m.definition);
+    if(!exists) {
+      // If translation not yet loaded, fetch it
+      let de = m.de || '';
+      if(!de) {
+        try { de = await translate(word, m.pos, m.definition) || ''; } catch(e){}
+      }
+      entry.meanings.push({ pos: m.pos, de, definition: m.definition, example: m.example || '' });
+    }
+  }
+
+  save();
+  renderVocabs();
+
+  const btn = document.getElementById('add-all-btn');
+  if(btn) { btn.textContent = '✓ Alle bereits gespeichert'; btn.classList.add('added'); }
+}
+
+// ---- DE→EN SEARCH ----
+async function doSearchDE(q) {
+  const area = document.getElementById('search-results');
+  area.innerHTML = `<div class="search-empty"><p>⏳ Übersetze…</p></div>`;
+  try {
+    // Translate DE→EN via MyMemory
+    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=de|en`);
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    let enWord = data?.responseData?.translatedText || '';
+    if(!enWord || enWord.toUpperCase() === q.toUpperCase()) {
+      enWord = (data?.matches||[])[0]?.translation || '';
+    }
+    if(!enWord) throw new Error('no translation');
+
+    // Now look up the English word in the dictionary
+    area.innerHTML = `<div class="search-empty"><p>⏳ Suche „${esc(enWord)}"…</p></div>`;
+
+    // Temporarily switch lang to EN for the lookup, then restore
+    const prevLang = searchLang;
+    searchLang = 'en';
+    document.getElementById('search-inp').value = enWord;
+    await doSearch(enWord);
+    searchLang = prevLang;
+
+  } catch(e) {
+    area.innerHTML = `<div class="search-error">Keine Übersetzung für „${esc(q)}" gefunden.</div>`;
+  }
+}
+
+// ---- MEINE VOKABELN ----
+let currentSort = 'en';
+
+function setSort(mode, btn) {
+  currentSort = mode;
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderVocabs();
+}
+
+function getSorted() {
+  const list = [...vocabs];
+  if(currentSort === 'en') list.sort((a,b) => a.en.localeCompare(b.en));
+  else if(currentSort === 'de') list.sort((a,b) => {
+    const da = (a.meanings[0]?.de||'').toLowerCase();
+    const db = (b.meanings[0]?.de||'').toLowerCase();
+    return da.localeCompare(db);
+  });
+  else if(currentSort === 'pos') list.sort((a,b) => {
+    const pa = (a.meanings[0]?.pos||'').toLowerCase();
+    const pb = (b.meanings[0]?.pos||'').toLowerCase();
+    return pa.localeCompare(pb);
+  });
+  else if(currentSort === 'new') {} // already newest first
+  return list;
+}
+
+function renderVocabs() {
+  const el = document.getElementById('vocabs-list');
+  if(!vocabs.length) {
+    el.innerHTML = `<div class="vocabs-empty"><div class="ei">📖</div><p>Noch keine Vokabeln gespeichert.<br>Im Tab „Suchen" Wörter nachschlagen<br>und hinzufügen.</p></div>`;
+    return;
+  }
+  const list = getSorted();
+  el.innerHTML = list.map(v => {
+    const total = v.correct + v.wrong;
+    const pct = total > 0 ? Math.round(v.correct/total*100)+'%' : '–';
+    const pctCls = total===0?'pct-neu':v.correct>=v.wrong?'pct-good':'pct-bad';
+    const deShort = v.meanings.map(m=>m.de).filter(Boolean).slice(0,2).join(', ') || '–';
+
+    // Group meanings by German translation
+    const groups = [];
+    v.meanings.forEach((m, mi) => {
+      const deKey = (m.de||'–').toLowerCase().trim();
+      const existing = groups.find(g => g.deKey === deKey);
+      if(existing) {
+        existing.items.push({...m, mi});
+      } else {
+        groups.push({ deKey, de: m.de||'–', items: [{...m, mi}] });
+      }
+    });
+
+    const meaningsHtml = groups.map((g, gi) => {
+      const posLabels = [...new Set(g.items.map(m=>m.pos))].map(p=>`<span class="pos-badge">${esc(p)}</span>`).join(' ');
+      const defsHtml = g.items.map((m, di) => {
+        if(!m.definition) return '';
+        return `<div class="v-def-item">
+          <div class="v-def-text">
+            ${g.items.length > 1 ? `<span class="def-num">${di+1}.</span> ` : ''}${esc(m.definition)}
+            ${m.example ? `<div class="v-def-example">${esc(m.example)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+      const hasDefs = g.items.some(m => m.definition);
+      const gid = v.id + '_g' + gi;
+      return `<div class="v-meaning">
+        <div class="v-meaning-head">${posLabels}</div>
+        <div class="v-de-full">${esc(g.de)}</div>
+        ${hasDefs ? `
+        <button class="v-def-toggle" id="vdt_${gid}" onclick="toggleVDef('${gid}')">
+          <span class="arr">›</span> ${g.items.length > 1 ? g.items.filter(m=>m.definition).length + ' Definitionen' : 'Definition'}
+        </button>
+        <div class="v-def-body" id="vdb_${gid}">${defsHtml}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    const hasPhonetic = v.phonetic || v.audioUrl;
+    return `<div class="v-card" id="vc_${v.id}">
+      <div class="v-card-head" onclick="toggleVCard(${v.id})">
+        <span class="v-en">${esc(v.en)}</span>
+        <span class="v-de-short">${esc(deShort)}</span>
+        <span class="v-pct ${pctCls}">${pct}</span>
+        <span class="v-chevron">›</span>
+        <button class="v-del" onclick="event.stopPropagation();deleteVocab(${v.id})">×</button>
+      </div>
+      <div class="v-body" id="vb_${v.id}">
+        <div class="v-body-inner">${meaningsHtml}</div>
+        ${hasPhonetic ? `
+        <button class="v-phonetic-toggle" id="vpt_${v.id}" onclick="toggleVPhonetic(${v.id})">
+          <span class="arr">›</span> 🔊 Aussprache
+        </button>
+        <div class="v-phonetic-body" id="vpb_${v.id}">
+          <div class="v-phonetic-inner">
+            ${v.phonetic ? `<span class="v-phonetic-text">${esc(v.phonetic)}</span>` : ''}
+            ${v.audioUrl ? `<button class="v-audio-btn" onclick="playVAudio('${esc(v.audioUrl)}')">▶ Anhören</button>` : ''}
+          </div>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleVCard(id) {
+  const card = document.getElementById(`vc_${id}`);
+  const body = document.getElementById(`vb_${id}`);
+  if(!card||!body) return;
+  const open = body.classList.toggle('open');
+  card.classList.toggle('open', open);
+}
+
+function toggleVDef(gid) {
+  const body = document.getElementById(`vdb_${gid}`);
+  const tog  = document.getElementById(`vdt_${gid}`);
+  if(!body) return;
+  const open = body.classList.toggle('open');
+  tog.classList.toggle('open', open);
+}
+
+function toggleVPhonetic(id) {
+  const body = document.getElementById(`vpb_${id}`);
+  const tog  = document.getElementById(`vpt_${id}`);
+  if(!body) return;
+  const open = body.classList.toggle('open');
+  tog.classList.toggle('open', open);
+}
+
+function playVAudio(url) {
+  if(url) new Audio(url).play().catch(()=>{});
+}
+
+function deleteVocab(id) {
+  if(!confirm('Vokabel löschen?')) return;
+  vocabs = vocabs.filter(v => v.id !== id);
+  wrongIds.delete(id); save(); renderVocabs();
+}
+
+// ---- TRAIN ----
+function toggleWrongOnly() {
+  wrongOnly = !wrongOnly;
+  document.getElementById('btn-wrong').classList.toggle('active-pill', wrongOnly);
+  startSession();
+}
+function startSession() {
+  let pool = wrongOnly && wrongIds.size > 0 ? vocabs.filter(v=>wrongIds.has(v.id)) : [...vocabs];
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+  session=pool; sessionIdx=0; flipped=false; renderCard();
+}
+
+function renderCard() {
+  const area = document.getElementById('train-area');
+  const prog = document.getElementById('prog');
+  const ctr  = document.getElementById('counter');
+
+  if(!vocabs.length) {
+    area.innerHTML=`<div class="card-placeholder">Füge zuerst Vokabeln hinzu. 🎓</div><div class="ans-btns hidden"><button class="ans-btn didnt"></button><button class="ans-btn knew"></button></div>`;
+    prog.style.width='0%'; ctr.textContent=''; return;
+  }
+  if(!session.length){startSession();return;}
+  if(sessionIdx>=session.length){
+    const right=session.filter(v=>!wrongIds.has(v.id)).length;
+    prog.style.width='100%'; ctr.textContent='';
+    area.innerHTML=`<div class="done-screen">
+      <h2>Runde beendet 🎉</h2>
+      <div class="done-score">${right}/${session.length}</div>
+      <p>Gewusst: <strong>${right}</strong> von <strong>${session.length}</strong></p>
+      ${wrongIds.size>0?`<p style="color:var(--accent)">${wrongIds.size} Wort${wrongIds.size===1?'':'er'} noch unsicher</p>`:'<p style="color:var(--accent2)">Alle richtig! ✨</p>'}
+      <div class="done-btns">
+        <button class="done-btn primary" onclick="startSession()">↺ Nochmal</button>
+        ${wrongIds.size>0?`<button class="done-btn success" onclick="wrongOnly=true;document.getElementById('btn-wrong').classList.add('active-pill');startSession()">🔁 Nur falsche wiederholen</button>`:''}
+      </div>
+    </div>`; return;
+  }
+
+  prog.style.width=(sessionIdx/session.length*100)+'%';
+  ctr.textContent=`${sessionIdx+1} / ${session.length}`;
+
+  const v = session[sessionIdx];
+
+  // Build all definitions for front card
+  const allDefs = v.meanings.filter(m => m.definition);
+  const frontDefsHtml = allDefs.map((m, i) => `
+    <div class="f-def-item">
+      ${allDefs.length > 1 ? `<span class="f-def-num">${i+1}. <span style="font-style:italic;opacity:.6">${esc(m.pos)}</span></span>` : `<span class="f-def-num" style="font-style:italic;opacity:.6">${esc(m.pos)}</span>`}
+      <div>${esc(m.definition)}</div>
+      ${m.example ? `<div class="f-def-eg">${esc(m.example)}</div>` : ''}
+    </div>`).join('');
+
+  // Group meanings by DE for back card
+  const backGroups = [];
+  v.meanings.forEach(m => {
+    const key = (m.de||'–').toLowerCase().trim();
+    const ex = backGroups.find(g => g.key === key);
+    if(ex) { if(!ex.poses.includes(m.pos)) ex.poses.push(m.pos); }
+    else backGroups.push({ key, de: m.de||'–', poses: [m.pos] });
+  });
+  const backMeanings = backGroups.map(g => `
+    <div class="back-meaning">
+      <div class="back-pos">${g.poses.map(p=>esc(p)).join(' · ')}</div>
+      <div class="back-de">${esc(g.de)}</div>
+    </div>`).join('');
+
+  // Render as two separate panels (no 3D flip) for reliable layout
+  area.innerHTML=`
+    <div id="card-front" class="train-panel train-panel-front">
+      <div class="face-lang">🇬🇧 Englisch</div>
+      <div class="face-word">${esc(v.en)}</div>
+      ${allDefs.length ? `
+      <button class="f-def-btn" id="fdb-btn" onclick="toggleFDef(event)">
+        <span class="arr">›</span> ${allDefs.length > 1 ? allDefs.length + ' Definitionen' : 'Definition'}
+      </button>
+      <div class="f-def-area" id="fdb-area">
+        <div class="f-def-inner">${frontDefsHtml}</div>
+      </div>` : ''}
+      <div class="face-hint" id="flip-hint">Tippen zum Aufdecken</div>
+    </div>
+    <div id="card-back" class="train-panel train-panel-back" style="display:none">
+      <div class="face-lang" style="color:rgba(255,255,255,.45)">🇩🇪 Deutsch</div>
+      <div class="back-meanings">${backMeanings}</div>
+    </div>
+    <div class="ans-btns hidden" id="ans-btns">
+      <button class="ans-btn didnt" onclick="answer(false)">✗ Nicht gewusst</button>
+      <button class="ans-btn knew" onclick="answer(true)">✓ Gewusst</button>
+    </div>`;
+
+  // Attach flip on front panel click (but not on def button)
+  document.getElementById('card-front').addEventListener('click', handleFrontClick);
+}
+
+function toggleFDef(e) {
+  e.stopPropagation();
+  const btn = document.getElementById('fdb-btn');
+  const area = document.getElementById('fdb-area');
+  if(!btn||!area) return;
+  const open = area.classList.toggle('open');
+  btn.classList.toggle('open', open);
+}
+function handleFrontClick(e) {
+  if(e.target.closest('#fdb-btn')||e.target.closest('#fdb-area')) return;
+  flipCard();
+}
+function flipCard() {
+  const front = document.getElementById('card-front');
+  const back  = document.getElementById('card-back');
+  const btns  = document.getElementById('ans-btns');
+  if(!front||!back) return;
+  flipped = !flipped;
+  front.style.display = flipped ? 'none' : 'flex';
+  back.style.display  = flipped ? 'flex' : 'none';
+  if(btns) btns.classList.toggle('hidden', !flipped);
+}
+function answer(knew) {
+  const v=session[sessionIdx], voc=vocabs.find(x=>x.id===v.id);
+  if(voc){if(knew){voc.correct++;wrongIds.delete(v.id);}else{voc.wrong++;wrongIds.add(v.id);}save();}
+  sessionIdx++; flipped=false; renderCard();
+}
+
+// ---- STATS ----
+function renderStats() {
+  const total=vocabs.length;
+  const practiced=vocabs.filter(v=>v.correct+v.wrong>0).length;
+  const allC=vocabs.reduce((s,v)=>s+v.correct,0);
+  const allW=vocabs.reduce((s,v)=>s+v.wrong,0);
+  const pct=allC+allW>0?Math.round(allC/(allC+allW)*100):0;
+  document.getElementById('stats-grid').innerHTML=`
+    <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-lbl">Vokabeln</div></div>
+    <div class="stat-card"><div class="stat-num">${practiced}</div><div class="stat-lbl">Geübt</div></div>
+    <div class="stat-card"><div class="stat-num">${allC}</div><div class="stat-lbl">Richtig</div></div>
+    <div class="stat-card"><div class="stat-num" style="color:var(--accent2)">${pct}%</div><div class="stat-lbl">Trefferquote</div></div>`;
+  const pl=vocabs.filter(v=>v.correct+v.wrong>0);
+  const good=[...pl].filter(v=>v.correct>=v.wrong).sort((a,b)=>b.correct-a.correct).slice(0,5);
+  const bad=[...pl].filter(v=>v.wrong>v.correct).sort((a,b)=>b.wrong-a.wrong).slice(0,5);
+  const firstDe = v => v.meanings[0]?.de || '–';
+  document.getElementById('list-good').innerHTML=good.length
+    ?good.map((v,i)=>`<div class="rank-item"><div class="rank-badge rb-good">${i+1}</div><span class="rank-en">${esc(v.en)}</span><span class="rank-de">${esc(firstDe(v))}</span><span class="rank-n">${v.correct}✓</span></div>`).join('')
+    :'<div class="vocabs-empty" style="padding:12px"><p>Noch keine Daten.</p></div>';
+  document.getElementById('list-bad').innerHTML=bad.length
+    ?bad.map((v,i)=>`<div class="rank-item"><div class="rank-badge rb-bad">${i+1}</div><span class="rank-en">${esc(v.en)}</span><span class="rank-de">${esc(firstDe(v))}</span><span class="rank-n">${v.wrong}✗</span></div>`).join('')
+    :'<div class="vocabs-empty" style="padding:12px"><p>Noch keine Daten.</p></div>';
+}
+function resetStats() {
+  if(!confirm('Statistik wirklich zurücksetzen?')) return;
+  vocabs.forEach(v=>{v.correct=0;v.wrong=0;}); wrongIds.clear(); save(); renderStats();
 }
 
 
