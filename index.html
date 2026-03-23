@@ -437,6 +437,21 @@ body::before {
       <div class="section-title" style="margin-top:16px">🔁 Noch zu üben</div>
       <div class="rank-list" id="list-bad"></div>
       <button class="reset-btn" onclick="resetStats()">Statistik zurücksetzen</button>
+
+      <!-- API Key settings -->
+      <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+        <div style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">⚙️ Einstellungen</div>
+        <div style="background:var(--card-bg);border:1.5px solid var(--border);border-radius:14px;padding:14px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px">Anthropic API Key</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px" id="key-status"></div>
+          <div style="display:flex;gap:8px">
+            <input id="settings-key-input" type="password" placeholder="sk-ant-..."
+              style="flex:1;padding:9px 12px;border-radius:9px;border:1.5px solid var(--border);font-size:13px;background:var(--bg);color:var(--ink);outline:none;-webkit-appearance:none">
+            <button onclick="saveSettingsKey()" style="padding:9px 14px;background:var(--ink);color:#fff;border:none;border-radius:9px;font-weight:600;font-size:12px;cursor:pointer;-webkit-tap-highlight-color:transparent">Speichern</button>
+          </div>
+          <button onclick="deleteApiKey()" style="margin-top:8px;width:100%;padding:8px;border-radius:9px;border:1.5px solid var(--border);background:none;color:var(--accent);font-size:12px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent">Key löschen</button>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -468,21 +483,51 @@ let audioUrl = null, acTimer = null, searchLang = 'en';
 function save() { localStorage.setItem('vt_v7', JSON.stringify(vocabs)); }
 function load() { try { const d = localStorage.getItem('vt_v7'); if(d) vocabs = JSON.parse(d); } catch(e){} }
 
+// ---- API KEY ----
+function getApiKey() {
+  return localStorage.getItem('anthropic_key') || '';
+}
+function setApiKey(key) {
+  localStorage.setItem('anthropic_key', key.trim());
+}
+
 // ---- TRANSLATE ----
 async function translate(word, pos, definition) {
+  const apiKey = getApiKey();
+  if(!apiKey) return null;
+
+  const prompt = `Translate the English word "${word}" (part of speech: ${pos || 'unknown'}, meaning: "${definition || ''}") into German.
+Return ALL common German translations, separated by commas.
+- For nouns: capitalize (e.g. "Göre, Balg, Fratz")
+- For verbs: infinitive, lowercase (e.g. "bellen, kläffen")
+- For adjectives/adverbs: lowercase
+- Include synonyms and regional variants where relevant
+- Maximum 6 translations
+- ONLY the German words, no explanations, no numbering`;
+
   try {
-    // Use Netlify Function proxy → Anthropic API
-    const res = await fetch('/.netlify/functions/translate', {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ word, pos, definition })
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-request-allowlist': 'allow-all'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 100,
+        messages: [{ role: 'user', content: prompt }]
+      })
     });
-    if(!res.ok) throw new Error('proxy error');
+    if(!res.ok) throw new Error('API error ' + res.status);
     const data = await res.json();
-    const t = data.translation || '';
-    if(t) return t;
-  } catch(e) {}
-  return null;
+    const t = data?.content?.[0]?.text?.trim() || '';
+    return t || null;
+  } catch(e) {
+    console.error('Translation error:', e);
+    return null;
+  }
 }
 
 // German: nouns capitalized, verbs/adjectives/adverbs lowercase
@@ -1019,6 +1064,37 @@ function resetStats() {
   vocabs.forEach(v=>{v.correct=0;v.wrong=0;}); wrongIds.clear(); save(); renderStats();
 }
 
+function saveSettingsKey() {
+  const val = document.getElementById('settings-key-input')?.value?.trim();
+  if(!val || !val.startsWith('sk-ant-')) {
+    alert('Bitte einen gültigen API Key eingeben (beginnt mit sk-ant-)');
+    return;
+  }
+  setApiKey(val);
+  document.getElementById('settings-key-input').value = '';
+  updateKeyStatus();
+  alert('API Key gespeichert ✓');
+}
+
+function deleteApiKey() {
+  if(!confirm('API Key wirklich löschen?')) return;
+  localStorage.removeItem('anthropic_key');
+  updateKeyStatus();
+}
+
+function updateKeyStatus() {
+  const el = document.getElementById('key-status');
+  if(!el) return;
+  const key = getApiKey();
+  if(key) {
+    el.textContent = '✓ Key gespeichert (' + key.slice(0,12) + '…)';
+    el.style.color = 'var(--accent2)';
+  } else {
+    el.textContent = 'Kein Key gespeichert – Übersetzung nicht verfügbar';
+    el.style.color = 'var(--accent)';
+  }
+}
+
 // ---- NAV ----
 function showView(name, btn) {
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -1035,6 +1111,39 @@ document.addEventListener('click', e=>{ if(!e.target.closest('.search-wrap')) cl
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');}
 
 load(); renderVocabs();
+
+// Show API key banner if not set
+function checkApiKey() {
+  if(!getApiKey()) {
+    showApiKeyBanner();
+  }
+}
+function showApiKeyBanner() {
+  const existing = document.getElementById('api-key-banner');
+  if(existing) return;
+  const banner = document.createElement('div');
+  banner.id = 'api-key-banner';
+  banner.style.cssText = 'position:fixed;bottom:calc(var(--safe-bottom) + 60px);left:12px;right:12px;background:var(--ink);color:#fff;border-radius:14px;padding:14px 16px;z-index:1000;box-shadow:0 8px 24px rgba(0,0,0,.2)';
+  banner.innerHTML = `
+    <div style="font-family:'Playfair Display',serif;font-size:1rem;font-weight:700;margin-bottom:4px">API Key einrichten</div>
+    <div style="font-size:12px;opacity:.7;margin-bottom:10px">Für automatische Übersetzungen einmalig deinen Anthropic API Key eingeben.</div>
+    <div style="display:flex;gap:8px">
+      <input id="api-key-input" type="password" placeholder="sk-ant-..." style="flex:1;padding:9px 12px;border-radius:9px;border:none;font-size:14px;background:rgba(255,255,255,.12);color:#fff;outline:none">
+      <button onclick="saveApiKey()" style="padding:9px 16px;background:var(--accent2);color:#fff;border:none;border-radius:9px;font-weight:600;font-size:13px;cursor:pointer">Speichern</button>
+      <button onclick="document.getElementById('api-key-banner').remove()" style="padding:9px 12px;background:rgba(255,255,255,.1);color:#fff;border:none;border-radius:9px;font-size:13px;cursor:pointer">✕</button>
+    </div>`;
+  document.body.appendChild(banner);
+}
+function saveApiKey() {
+  const val = document.getElementById('api-key-input')?.value?.trim();
+  if(!val || !val.startsWith('sk-ant-')) {
+    alert('Bitte einen gültigen API Key eingeben (beginnt mit sk-ant-)');
+    return;
+  }
+  setApiKey(val);
+  document.getElementById('api-key-banner')?.remove();
+}
+checkApiKey();
 </script>
 </body>
 </html>
