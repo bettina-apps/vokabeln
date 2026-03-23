@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vokabeln">
+<meta name="theme-color" content="#1a1814">
+<title>Vokabeltrainer</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f5f0e8; --ink: #1a1814; --card-bg: #fffdf7;
+  --accent: #c0392b; --accent2: #2c6e49; --muted: #8a8070; --border: #d4ccbc;
+  --safe-top: env(safe-area-inset-top,0px); --safe-bottom: env(safe-area-inset-bottom,0px);
+}
+html,body { height:100%; overflow:hidden; }
+body {
+  font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--ink);
+  display:flex; flex-direction:column; height:100vh; height:-webkit-fill-available;
+}
+body::before {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background: radial-gradient(ellipse 60% 40% at 80% 10%,rgba(192,57,43,.07) 0%,transparent 70%),
+              radial-gradient(ellipse 50% 50% at 10% 90%,rgba(44,110,73,.07) 0%,transparent 70%);
+}
+
+/* HEADER */
+.app-header {
+  padding:calc(var(--safe-top) + 14px) 20px 12px; text-align:center;
+  border-bottom:1px solid var(--border); background:rgba(245,240,232,.94);
+  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  position:relative; z-index:10; flex-shrink:0;
+}
+.eyebrow { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:3px; color:var(--muted); text-transform:uppercase; margin-bottom:2px; }
+.app-header h1 { font-family:'Playfair Display',serif; font-size:1.45rem; font-weight:700; }
+.app-header h1 em { font-style:italic; color:var(--accent); }
+
+/* SCROLL */
+.scroll-area { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; position:relative; z-index:1; }
+.scroll-inner { padding:15px 13px 28px; }
+
+/* BOTTOM NAV */
+.bottom-nav {
+  display:flex; background:rgba(245,240,232,.96);
+  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  border-top:1px solid var(--border); padding-bottom:var(--safe-bottom);
+  flex-shrink:0; z-index:10; position:relative;
+}
+.nav-btn {
+  flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:8px 2px; border:none; background:transparent; cursor:pointer;
+  font-family:'DM Sans',sans-serif; font-size:9px; font-weight:500;
+  color:var(--muted); transition:color .2s; -webkit-tap-highlight-color:transparent;
+}
+.nav-btn .icon { font-size:20px; line-height:1; transition:transform .2s; }
+.nav-btn.active { color:var(--ink); }
+.nav-btn.active .icon { transform:scale(1.12); }
+
+/* VIEWS */
+.view { display:none; }
+.view.active { display:block; }
+
+/* ===== SEARCH TAB ===== */
+.search-wrap { position:relative; margin-bottom:13px; }
+.search-row { display:flex; gap:8px; }
+.search-inp {
+  flex:1; padding:11px 13px; border:1.5px solid var(--border); border-radius:12px;
+  background:var(--card-bg); font-family:'DM Sans',sans-serif; font-size:16px;
+  color:var(--ink); outline:none; transition:border-color .2s; -webkit-appearance:none;
+}
+.search-inp:focus { border-color:var(--accent); }
+.search-btn {
+  padding:0 16px; background:var(--ink); color:#fff; border:none; border-radius:12px;
+  font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer;
+  -webkit-tap-highlight-color:transparent; transition:background .15s; white-space:nowrap;
+}
+.search-btn:active { background:var(--accent); }
+
+/* Autocomplete */
+.ac-list {
+  position:absolute; top:calc(100% + 4px); left:0; right:68px;
+  background:var(--card-bg); border:1.5px solid var(--border); border-radius:12px;
+  box-shadow:0 8px 24px rgba(0,0,0,.12); z-index:200; display:none; overflow:hidden;
+}
+.ac-list.open { display:block; }
+.ac-item {
+  padding:10px 13px; font-size:15px; cursor:pointer;
+  border-bottom:1px solid var(--border); -webkit-tap-highlight-color:transparent;
+  transition:background .1s;
+}
+.ac-item:last-child { border-bottom:none; }
+.ac-item:active { background:var(--bg); }
+.ac-bold { font-weight:700; }
+
+/* Word header in search results */
+.word-header {
+  background:var(--ink); color:#fff; border-radius:14px;
+  padding:15px 16px 13px; margin-bottom:9px;
+}
+.word-title { font-family:'Playfair Display',serif; font-size:1.75rem; font-weight:700; }
+.word-phonetic { font-family:'DM Mono',monospace; font-size:12px; opacity:.5; margin-top:3px; margin-bottom:9px; }
+.audio-btn {
+  display:inline-flex; align-items:center; gap:5px; padding:5px 12px;
+  border-radius:20px; border:1.5px solid rgba(255,255,255,.25);
+  background:rgba(255,255,255,.1); color:#fff; font-size:12px; font-weight:500;
+  cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+
+/* Add all button */
+.add-all-btn {
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  width:100%; padding:12px; border-radius:12px; margin-bottom:10px;
+  border:2px solid var(--accent2); background:#edf7f1; color:var(--accent2);
+  font-family:'DM Sans',sans-serif; font-size:14px; font-weight:700;
+  cursor:pointer; transition:all .15s; -webkit-tap-highlight-color:transparent;
+}
+.add-all-btn:active { background:var(--accent2); color:#fff; }
+.add-all-btn.added { background:var(--accent2); color:#fff; pointer-events:none; }
+
+/* Meaning card in search */
+.s-meaning {
+  background:var(--card-bg); border:1.5px solid var(--border);
+  border-radius:13px; padding:13px; margin-bottom:8px; animation:fadeUp .2s ease;
+}
+@keyframes fadeUp { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+.s-meaning-top { display:flex; align-items:center; gap:8px; margin-bottom:9px; }
+.pos-badge {
+  display:inline-block; padding:3px 9px; border-radius:20px;
+  background:var(--bg); border:1px solid var(--border);
+  font-family:'DM Mono',monospace; font-size:9px; letter-spacing:1px;
+  text-transform:uppercase; color:var(--muted); font-style:italic;
+}
+.s-de {
+  font-family:'Playfair Display',serif; font-size:1.2rem; font-weight:700; color:var(--ink);
+  display:flex; align-items:center; gap:6px;
+}
+.s-de-loading { font-family:'DM Sans',sans-serif; font-size:13px; font-weight:400; color:var(--muted); font-style:italic; }
+.def-toggle {
+  display:flex; align-items:center; gap:5px; width:100%; text-align:left;
+  padding:6px 0 2px; border:none; background:none; color:var(--muted);
+  font-size:12px; font-weight:500; cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+.def-toggle .arr { display:inline-block; transition:transform .2s; }
+.def-toggle.open .arr { transform:rotate(90deg); }
+.def-body { max-height:0; overflow:hidden; transition:max-height .28s ease; }
+.def-body.open { max-height:180px; }
+.def-inner { padding:6px 0 2px; font-size:13px; color:var(--muted); line-height:1.6; }
+.def-example { margin-top:4px; font-style:italic; }
+.def-example::before { content:'"'; } .def-example::after { content:'"'; }
+
+.search-empty { text-align:center; padding:36px 16px; color:var(--muted); }
+.search-empty .ei { font-size:42px; margin-bottom:10px; }
+.search-empty p { font-size:14px; line-height:1.7; }
+.search-error { padding:15px; border-radius:12px; background:#fdf0ef; border:1.5px solid #f5c6c3; color:var(--accent); font-size:14px; line-height:1.6; text-align:center; margin-bottom:10px; }
+
+/* ===== MEINE VOKABELN TAB ===== */
+.sort-row {
+  display:flex; gap:6px; margin-bottom:13px; flex-wrap:wrap;
+}
+.sort-btn {
+  padding:5px 12px; border-radius:20px; border:1.5px solid var(--border);
+  background:var(--card-bg); font-family:'DM Sans',sans-serif; font-size:11px;
+  font-weight:500; color:var(--muted); cursor:pointer; transition:all .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.sort-btn.active { background:var(--ink); color:#fff; border-color:var(--ink); }
+
+/* Vocab entry card */
+.v-card {
+  background:var(--card-bg); border:1.5px solid var(--border);
+  border-radius:14px; margin-bottom:9px; overflow:hidden;
+  animation:fadeUp .2s ease;
+}
+.v-card-head {
+  display:flex; align-items:center; gap:10px; padding:12px 13px;
+  cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+.v-card-head:active { background:var(--bg); }
+.v-en { font-weight:700; font-size:15px; flex:1; }
+.v-de-short { color:var(--muted); font-style:italic; font-size:13px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.v-pct { font-family:'DM Mono',monospace; font-size:11px; min-width:28px; text-align:right; }
+.pct-good { color:var(--accent2); } .pct-bad { color:var(--accent); } .pct-neu { color:var(--muted); }
+.v-chevron { color:var(--muted); font-size:16px; transition:transform .2s; flex-shrink:0; }
+.v-card.open .v-chevron { transform:rotate(90deg); }
+.v-del { background:none; border:none; color:var(--border); font-size:20px; cursor:pointer; padding:0 3px; line-height:1; flex-shrink:0; -webkit-tap-highlight-color:transparent; }
+.v-del:active { color:var(--accent); }
+.v-phonetic-toggle {
+  display:flex; align-items:center; gap:5px; width:100%; text-align:left;
+  padding:8px 13px; border:none; background:var(--bg); color:var(--muted);
+  font-size:12px; font-weight:500; cursor:pointer; border-top:1px solid var(--border);
+  -webkit-tap-highlight-color:transparent;
+}
+.v-phonetic-toggle .arr { display:inline-block; transition:transform .2s; }
+.v-phonetic-toggle.open .arr { transform:rotate(90deg); }
+.v-phonetic-body { max-height:0; overflow:hidden; transition:max-height .25s ease; }
+.v-phonetic-body.open { max-height:80px; }
+.v-phonetic-inner {
+  padding:10px 13px; display:flex; align-items:center; gap:12px;
+  border-top:1px solid var(--border);
+}
+.v-phonetic-text { font-family:'DM Mono',monospace; font-size:14px; color:var(--muted); }
+.v-audio-btn {
+  display:inline-flex; align-items:center; gap:5px; padding:5px 13px;
+  border-radius:20px; border:1.5px solid var(--border); background:var(--bg);
+  color:var(--ink); font-size:12px; font-weight:500; cursor:pointer;
+  -webkit-tap-highlight-color:transparent; transition:all .15s;
+}
+.v-audio-btn:active { background:var(--ink); color:#fff; border-color:var(--ink); }
+
+/* Expanded content */
+.v-body { max-height:0; overflow:hidden; transition:max-height .3s ease; }
+.v-body.open { max-height:600px; }
+.v-body-inner { padding:0 13px 13px; border-top:1px solid var(--border); }
+
+.v-meaning {
+  padding:10px 0; border-bottom:1px solid var(--border);
+}
+.v-meaning:last-child { border-bottom:none; }
+.v-meaning-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.v-de-full { font-family:'Playfair Display',serif; font-size:1.1rem; font-weight:700; }
+.v-def-toggle {
+  display:flex; align-items:center; gap:4px; border:none; background:none;
+  color:var(--muted); font-size:11px; cursor:pointer; padding:0;
+  -webkit-tap-highlight-color:transparent;
+}
+.v-def-toggle .arr { display:inline-block; transition:transform .2s; }
+.v-def-toggle.open .arr { transform:rotate(90deg); }
+.v-def-body { max-height:0; overflow:hidden; transition:max-height .25s ease; }
+.v-def-body.open { max-height:160px; }
+.v-def-text { font-size:12px; color:var(--muted); line-height:1.6; padding:4px 0; }
+.v-def-example { font-style:italic; margin-top:3px; }
+.v-def-example::before{content:'"';} .v-def-example::after{content:'"';}
+.v-def-item { padding:6px 0; border-bottom:1px dotted var(--border); }
+.v-def-item:last-child { border-bottom:none; }
+.def-num { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); font-weight:600; }
+
+.vocabs-empty { text-align:center; padding:40px 16px; color:var(--muted); }
+.vocabs-empty .ei { font-size:40px; margin-bottom:10px; }
+.vocabs-empty p { font-size:14px; line-height:1.7; }
+
+/* ===== TRAIN ===== */
+.train-top { display:flex; gap:8px; align-items:center; margin-bottom:13px; }
+.pill-btn {
+  padding:6px 13px; border-radius:20px; border:1.5px solid var(--border);
+  background:var(--card-bg); font-family:'DM Sans',sans-serif; font-size:12px;
+  font-weight:500; color:var(--ink); cursor:pointer; transition:all .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.pill-btn.active-pill { background:var(--ink); color:#fff; border-color:var(--ink); }
+.progress-wrap { height:3px; background:var(--border); border-radius:3px; margin-bottom:7px; overflow:hidden; }
+.progress-fill { height:100%; background:var(--accent2); border-radius:3px; transition:width .35s ease; }
+.counter { font-family:'DM Mono',monospace; font-size:11px; color:var(--muted); text-align:center; margin-bottom:15px; }
+
+/* FLASHCARD */
+.train-panel {
+  width:100%; min-height:200px; border-radius:20px; padding:24px 20px;
+  display:flex; flex-direction:column; align-items:center;
+  margin-bottom:16px;
+}
+.train-panel-front {
+  background:var(--card-bg); border:2px solid var(--border);
+  box-shadow:0 6px 22px rgba(0,0,0,.08); cursor:pointer;
+}
+.train-panel-back {
+  background:var(--ink); border:2px solid var(--ink);
+  box-shadow:0 6px 22px rgba(0,0,0,.13); color:#fff; cursor:pointer;
+}
+.train-panel-back .back-meanings { width:100%; }
+.train-panel-back .back-meaning { padding:8px 0; border-bottom:1px solid rgba(255,255,255,.1); }
+.train-panel-back .back-meaning:last-child { border-bottom:none; }
+.train-panel-back .back-pos { font-family:'DM Mono',monospace; font-size:9px; letter-spacing:1px; text-transform:uppercase; opacity:.4; margin-bottom:3px; }
+.train-panel-back .back-de { font-family:'Playfair Display',serif; font-size:1.2rem; font-weight:700; }
+.card-scene { perspective:1000px; margin-bottom:16px; }
+.card {
+  width:100%; min-height:230px; position:relative; transform-style:preserve-3d;
+  transition:transform .5s cubic-bezier(.4,.2,.2,1); -webkit-tap-highlight-color:transparent;
+}
+.card.flipped { transform:rotateY(180deg); }
+.face {
+  position:absolute; inset:0; min-height:230px; backface-visibility:hidden;
+  -webkit-backface-visibility:hidden; border-radius:20px;
+  display:flex; flex-direction:column; align-items:center; padding:22px 20px;
+  overflow:hidden;
+}
+.face-front {
+  background:var(--card-bg); border:2px solid var(--border);
+  box-shadow:0 6px 22px rgba(0,0,0,.08); justify-content:flex-start; cursor:pointer;
+}
+.face-back {
+  background:var(--ink); color:#fff; border:2px solid var(--ink);
+  box-shadow:0 6px 22px rgba(0,0,0,.13); transform:rotateY(180deg);
+  justify-content:flex-start; padding:22px 20px; cursor:pointer; overflow:hidden;
+}
+.face-lang { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:3px; text-transform:uppercase; opacity:.38; margin-bottom:8px; }
+.face-word { font-family:'Playfair Display',serif; font-size:clamp(1.55rem,6vw,2.3rem); font-weight:700; line-height:1.2; text-align:center; }
+
+/* Front: definition toggle */
+.f-def-btn {
+  display:flex; align-items:center; gap:5px; margin-top:14px;
+  padding:7px 14px; border-radius:20px; border:1.5px solid var(--border);
+  background:var(--bg); color:var(--muted); font-size:12px; font-weight:500;
+  cursor:pointer; -webkit-tap-highlight-color:transparent; transition:all .15s;
+}
+.f-def-btn .arr { display:inline-block; transition:transform .2s; }
+.f-def-btn.open .arr { transform:rotate(90deg); }
+.f-def-area { max-height:0; overflow:hidden; transition:max-height .4s ease; width:100%; }
+.f-def-area.open { max-height:400px; overflow-y:auto; }
+.f-def-inner { margin-top:10px; padding:10px 12px; background:var(--bg); border-radius:10px; font-size:13px; color:var(--ink); line-height:1.6; text-align:left; width:100%; }
+.f-def-eg { margin-top:4px; font-style:italic; }
+.f-def-eg::before{content:'"';} .f-def-eg::after{content:'"';}
+.f-def-item { padding:6px 0; border-bottom:1px dotted rgba(26,24,20,.12); text-align:left; font-size:13px; line-height:1.6; color:var(--ink); }
+.f-def-item:last-child { border-bottom:none; padding-bottom:0; }
+.f-def-num { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); display:block; margin-bottom:3px; }
+.face-hint { font-size:11px; color:var(--muted); opacity:.45; margin-top:auto; padding-top:8px; }
+
+/* Back: all meanings */
+.back-meanings { width:100%; overflow-y:auto; flex:1; }
+.back-meaning { padding:8px 0; border-bottom:1px solid rgba(255,255,255,.1); }
+.back-meaning:last-child { border-bottom:none; }
+.back-pos { font-family:'DM Mono',monospace; font-size:9px; letter-spacing:1px; text-transform:uppercase; opacity:.4; margin-bottom:3px; }
+.back-de { font-family:'Playfair Display',serif; font-size:1.2rem; font-weight:700; }
+
+.ans-btns { display:flex; gap:10px; }
+.ans-btn {
+  flex:1; padding:13px; border-radius:14px; border:2px solid;
+  font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600;
+  cursor:pointer; transition:all .15s; -webkit-tap-highlight-color:transparent;
+}
+.ans-btn.knew { background:#edf7f1; color:var(--accent2); border-color:var(--accent2); }
+.ans-btn.knew:active { background:var(--accent2); color:#fff; }
+.ans-btn.didnt { background:#fdf0ef; color:var(--accent); border-color:var(--accent); }
+.ans-btn.didnt:active { background:var(--accent); color:#fff; }
+.ans-btns.hidden { visibility:hidden; pointer-events:none; }
+.card-placeholder { min-height:230px; border-radius:20px; border:2px dashed var(--border); display:flex; align-items:center; justify-content:center; padding:28px 18px; text-align:center; color:var(--muted); font-size:14px; line-height:1.65; margin-bottom:16px; }
+.done-screen { text-align:center; padding:28px 14px; }
+.done-screen h2 { font-family:'Playfair Display',serif; font-size:1.65rem; margin-bottom:6px; }
+.done-score { font-family:'DM Mono',monospace; font-size:2.7rem; color:var(--accent2); margin:12px 0; line-height:1; }
+.done-screen p { color:var(--muted); font-size:14px; line-height:1.6; margin-bottom:5px; }
+.done-btns { display:flex; flex-direction:column; gap:9px; margin-top:16px; }
+.done-btn { padding:13px; border-radius:12px; border:none; font-family:'DM Sans',sans-serif; font-size:15px; font-weight:600; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+.done-btn.primary { background:var(--ink); color:#fff; }
+.done-btn.success { background:#edf7f1; color:var(--accent2); border:1.5px solid var(--accent2); }
+
+/* Lang toggle */
+.lang-toggle-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.lang-toggle {
+  display:flex; align-items:center; gap:6px; padding:7px 14px;
+  border-radius:20px; border:1.5px solid var(--border); background:var(--card-bg);
+  font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer;
+  -webkit-tap-highlight-color:transparent; transition:all .15s; color:var(--ink);
+  white-space:nowrap;
+}
+.lang-toggle:active { background:var(--ink); color:#fff; border-color:var(--ink); }
+.lang-toggle .swap { font-size:14px; }
+
+/* ===== STATS ===== */
+.stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:16px; }
+.stat-card { background:var(--card-bg); border:1.5px solid var(--border); border-radius:14px; padding:14px 12px; text-align:center; }
+.stat-num { font-family:'Playfair Display',serif; font-size:1.85rem; font-weight:700; line-height:1; margin-bottom:4px; }
+.stat-lbl { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+.section-title { font-family:'Playfair Display',serif; font-size:1.05rem; margin:15px 0 9px; }
+.rank-list { display:flex; flex-direction:column; gap:6px; }
+.rank-item { display:flex; align-items:center; gap:9px; padding:10px 12px; background:var(--card-bg); border:1.5px solid var(--border); border-radius:11px; }
+.rank-badge { font-family:'DM Mono',monospace; font-size:10px; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-weight:600; }
+.rb-good { background:#edf7f1; color:var(--accent2); }
+.rb-bad { background:#fdf0ef; color:var(--accent); }
+.rank-en { font-weight:600; font-size:13px; flex:1; }
+.rank-de { color:var(--muted); font-style:italic; font-size:12px; }
+.rank-n { font-family:'DM Mono',monospace; font-size:11px; color:var(--muted); }
+.reset-btn { display:block; width:100%; margin-top:18px; padding:13px; border-radius:12px; border:1.5px solid var(--border); background:var(--card-bg); color:var(--accent); font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div class="eyebrow">🇬🇧 ↔ 🇩🇪</div>
+  <h1>Vokabel<em>trainer</em></h1>
+</div>
+
+<div class="scroll-area">
+  <div class="scroll-inner">
+
+    <!-- SUCHE -->
+    <div id="view-search" class="view active">
+      <div class="lang-toggle-row">
+        <button class="lang-toggle" id="lang-toggle-btn" onclick="toggleLang()">
+          <span id="lang-from">🇬🇧 EN</span>
+          <span class="swap">⇄</span>
+          <span id="lang-to">🇩🇪 DE</span>
+        </button>
+      </div>
+      <div class="search-wrap">
+        <div class="search-row">
+          <input class="search-inp" id="search-inp" type="text"
+            placeholder="Englisches Wort suchen…"
+            autocomplete="off" autocorrect="off" spellcheck="false"
+            oninput="onInput()" onkeydown="onKey(event)">
+          <button class="search-btn" onclick="doSearch()">Suchen</button>
+        </div>
+        <div class="ac-list" id="ac-list"></div>
+      </div>
+      <div id="search-results">
+        <div class="search-empty"><div class="ei">🔍</div><p>Gib ein englisches Wort ein,<br>um es nachzuschlagen.</p></div>
+      </div>
+    </div>
+
+    <!-- MEINE VOKABELN -->
+    <div id="view-vocabs" class="view">
+      <div class="sort-row">
+        <button class="sort-btn active" id="sort-en" onclick="setSort('en',this)">A–Z Englisch</button>
+        <button class="sort-btn" id="sort-de" onclick="setSort('de',this)">A–Z Deutsch</button>
+        <button class="sort-btn" id="sort-pos" onclick="setSort('pos',this)">Wortart</button>
+        <button class="sort-btn" id="sort-new" onclick="setSort('new',this)">Neu zuerst</button>
+      </div>
+      <div id="vocabs-list"></div>
+    </div>
+
+    <!-- LERNEN -->
+    <div id="view-train" class="view">
+      <div class="train-top">
+        <button class="pill-btn" id="btn-wrong" onclick="toggleWrongOnly()">Nur falsche</button>
+        <button class="pill-btn" onclick="startSession()">↺ Neu mischen</button>
+      </div>
+      <div class="progress-wrap"><div class="progress-fill" id="prog" style="width:0%"></div></div>
+      <div class="counter" id="counter"></div>
+      <div id="train-area"></div>
+    </div>
+
+    <!-- STATISTIK -->
+    <div id="view-stats" class="view">
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="section-title">💪 Gut bekannte Wörter</div>
+      <div class="rank-list" id="list-good"></div>
+      <div class="section-title" style="margin-top:16px">🔁 Noch zu üben</div>
+      <div class="rank-list" id="list-bad"></div>
+      <button class="reset-btn" onclick="resetStats()">Statistik zurücksetzen</button>
+    </div>
+
+  </div>
+</div>
+
+<nav class="bottom-nav">
+  <button class="nav-btn active" id="nav-search" onclick="showView('search',this)">
+    <span class="icon">🔍</span>Suchen
+  </button>
+  <button class="nav-btn" id="nav-vocabs" onclick="showView('vocabs',this)">
+    <span class="icon">📚</span>Vokabeln
+  </button>
+  <button class="nav-btn" id="nav-train" onclick="showView('train',this)">
+    <span class="icon">🃏</span>Lernen
+  </button>
+  <button class="nav-btn" id="nav-stats" onclick="showView('stats',this)">
+    <span class="icon">📊</span>Statistik
+  </button>
+</nav>
+
+<script>
+// ---- DATA MODEL ----
+// vocabs: { id, en, phonetic, meanings: [{pos, de, definition, example}], correct, wrong }
+let vocabs = [], session = [], sessionIdx = 0, flipped = false;
+let wrongOnly = false, wrongIds = new Set();
+let sortMode = 'en';
+let audioUrl = null, acTimer = null, searchLang = 'en';
+
+function save() { localStorage.setItem('vt_v7', JSON.stringify(vocabs)); }
+function load() { try { const d = localStorage.getItem('vt_v7'); if(d) vocabs = JSON.parse(d); } catch(e){} }
+
+// ---- TRANSLATE ----
+function isBadTranslation(t, word) {
+  if(!t) return true;
+  const tClean = t.toLowerCase().replace(/[^a-zäöüß]/g,'');
+  const wClean = word.toLowerCase().replace(/[^a-z]/g,'');
+  if(tClean === wClean) return true;
+  if(t.toLowerCase().trim() === word.toLowerCase().trim()) return true;
+  return false;
+}
+
+// Fetch one translation string from MyMemory
+async function fetchMyMemory(query, langpair) {
+  const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(query)}&langpair=${langpair}`);
+  if(!res.ok) return null;
+  const data = await res.json();
+  let t = data?.responseData?.translatedText || '';
+  // Collect unique good results from matches too
+  const extras = (data?.matches||[])
+    .map(m => m.translation)
+    .filter(m => m && !isBadTranslation(m, query.split('(')[0].trim()));
+  return { main: t, extras };
+}
+
+// Merge and deduplicate translation candidates
+function mergeTranslations(candidates, word, pos) {
+  const seen = new Set();
+  const results = [];
+  for(const raw of candidates) {
+    if(!raw) continue;
+    // Split on comma/semicolon for multiple in one string
+    const parts = raw.split(/[,;\/]/).map(p => p.trim()).filter(Boolean);
+    for(const p of parts) {
+      if(isBadTranslation(p, word)) continue;
+      const normalized = normalizeDe(p, pos);
+      const key = normalized.toLowerCase();
+      if(!seen.has(key)) { seen.add(key); results.push(normalized); }
+    }
+  }
+  return results.slice(0, 6); // max 6 translations
+}
+
+async function translate(word, pos, definition) {
+  const candidates = [];
+
+  // Query 1: plain word
+  try {
+    const r = await fetchMyMemory(word, 'en|de');
+    if(r) {
+      if(!isBadTranslation(r.main, word)) candidates.push(r.main);
+      candidates.push(...r.extras);
+    }
+  } catch(e) {}
+
+  // Query 2: word with pos context (often gives different result)
+  try {
+    const r = await fetchMyMemory(`${word} (${pos})`, 'en|de');
+    if(r && !isBadTranslation(r.main, word)) candidates.push(r.main);
+  } catch(e) {}
+
+  // Query 3: first few words of definition (gives contextual translation)
+  if(definition) {
+    const defSnippet = definition.split(' ').slice(0,6).join(' ');
+    try {
+      const r = await fetchMyMemory(defSnippet, 'en|de');
+      // From definition translation, extract just plausible single-word translations
+      if(r && r.extras.length) candidates.push(...r.extras);
+    } catch(e) {}
+  }
+
+  const merged = mergeTranslations(candidates, word, pos);
+  if(merged.length) return merged.join(', ');
+
+  return null;
+}
+
+// German: nouns capitalized, verbs/adjectives/adverbs lowercase
+function normalizeDe(t, pos) {
+  // If fully ALLCAPS, normalize to mixed case first
+  if(t === t.toUpperCase() && t.length > 1) {
+    t = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+  }
+  // Handle comma/slash separated alternatives
+  const parts = t.split(/[,;]/).map(p => p.trim()).filter(Boolean);
+  const isNoun = pos && pos.toLowerCase().includes('noun');
+  return parts.map(p => {
+    if(!p) return p;
+    if(isNoun) {
+      // German nouns are capitalized
+      return p.charAt(0).toUpperCase() + p.slice(1);
+    } else {
+      // verbs, adjectives etc. are lowercase
+      return p.charAt(0).toLowerCase() + p.slice(1);
+    }
+  }).join(', ');
+}
+
+// ---- AUTOCOMPLETE ----
+function onInput() {
+  const val = document.getElementById('search-inp').value.trim();
+  closeAC();
+  clearTimeout(acTimer);
+  if(val.length < 2) return;
+  acTimer = setTimeout(async () => {
+    try {
+      const acLang = searchLang === 'de' ? 'de' : 'en';
+      const acUrl = searchLang === 'de'
+        ? `https://api.datamuse.com/words?sp=${encodeURIComponent(val)}*&v=de&max=6`
+        : `https://api.datamuse.com/words?sp=${encodeURIComponent(val)}*&max=6`;
+      const res = await fetch(acUrl);
+      const data = await res.json();
+      const words = data.map(d=>d.word).filter(w=>w.toLowerCase().startsWith(val.toLowerCase()));
+      if(!words.length) return;
+      const list = document.getElementById('ac-list');
+      list.innerHTML = words.map(w =>
+        `<div class="ac-item" onclick="selectAC('${esc(w)}')">`+
+        `<span class="ac-bold">${esc(w.slice(0,val.length))}</span>${esc(w.slice(val.length))}</div>`
+      ).join('');
+      list.classList.add('open');
+    } catch(e){}
+  }, 280);
+}
+function selectAC(w) {
+  document.getElementById('search-inp').value = w;
+  closeAC(); doSearch(w);
+}
+function closeAC() {
+  const l = document.getElementById('ac-list');
+  l.classList.remove('open'); l.innerHTML='';
+}
+function onKey(e) {
+  if(e.key==='Enter'){closeAC();doSearch();}
+  if(e.key==='Escape') closeAC();
+}
+
+function toggleLang() {
+  searchLang = searchLang === 'en' ? 'de' : 'en';
+  const fromEl = document.getElementById('lang-from');
+  const toEl   = document.getElementById('lang-to');
+  const inp    = document.getElementById('search-inp');
+  if(searchLang === 'en') {
+    fromEl.textContent = '🇬🇧 EN';
+    toEl.textContent   = '🇩🇪 DE';
+    inp.placeholder    = 'Englisches Wort suchen…';
+  } else {
+    fromEl.textContent = '🇩🇪 DE';
+    toEl.textContent   = '🇬🇧 EN';
+    inp.placeholder    = 'Deutsches Wort suchen…';
+  }
+  inp.value = '';
+  closeAC();
+  document.getElementById('search-results').innerHTML =
+    `<div class="search-empty"><div class="ei">${searchLang==='en'?'🔍':'🔍'}</div><p>Gib ein ${searchLang==='en'?'englisches':'deutsches'} Wort ein.</p></div>`;
+}
+
+// ---- SEARCH + DICTIONARY ----
+async function doSearch(force) {
+  const q = (force || document.getElementById('search-inp').value.trim()).toLowerCase();
+  if(!q) return;
+  // If DE→EN: translate first, then look up the English word
+  if(searchLang === 'de') { await doSearchDE(q); return; }
+  const area = document.getElementById('search-results');
+  area.innerHTML = `<div class="search-empty"><p>⏳ Suche…</p></div>`;
+  audioUrl = null;
+
+  try {
+    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(q)}`);
+    if(!res.ok) throw new Error('404');
+    const data = await res.json();
+    if(!Array.isArray(data)||!data.length) throw new Error();
+    const entry = data[0];
+
+    let phonetic = entry.phonetic || '';
+    for(const ph of (entry.phonetics||[])) {
+      if(ph.audio && !audioUrl) audioUrl = ph.audio;
+      if(!phonetic && ph.text) phonetic = ph.text;
+    }
+
+    // Gather all meanings (max 6)
+    const meanings = [];
+    for(const m of (entry.meanings||[])) {
+      for(const def of (m.definitions||[]).slice(0,2)) {
+        if(meanings.length >= 6) break;
+        meanings.push({ pos: m.partOfSpeech, definition: def.definition, example: def.example||'' });
+      }
+    }
+
+    const alreadyAll = vocabs.some(v => v.en.toLowerCase() === entry.word.toLowerCase());
+
+    let html = `<div class="word-header">
+      <div class="word-title">${esc(entry.word)}</div>
+      ${phonetic ? `<div class="word-phonetic">${esc(phonetic)}</div>` : ''}
+      ${audioUrl ? `<button class="audio-btn" onclick="playAudio()">🔊 Aussprache</button>` : ''}
+    </div>
+    <button class="add-all-btn ${alreadyAll?'added':''}" id="add-all-btn"
+      onclick="addAllMeanings('${esc(entry.word)}','${esc(phonetic)}')">
+      ${alreadyAll ? '✓ Alle bereits gespeichert' : '＋ Alle Bedeutungen hinzufügen'}
+    </button>`;
+
+    meanings.forEach((m, i) => {
+      html += `<div class="s-meaning">
+        <div class="s-meaning-top">
+          <span class="pos-badge">${esc(m.pos)}</span>
+        </div>
+        <div class="s-de" id="sde_${i}">
+          🇩🇪 <span class="s-de-loading" id="sde-txt_${i}">wird übersetzt…</span>
+        </div>
+        <button class="def-toggle" id="dtog_${i}" onclick="toggleSDef(${i})">
+          <span class="arr">›</span> Englische Definition
+        </button>
+        <div class="def-body" id="dbody_${i}">
+          <div class="def-inner">${esc(m.definition)}
+            ${m.example ? `<div class="def-example">${esc(m.example)}</div>` : ''}
+          </div>
+        </div>
+      </div>`;
+    });
+
+    area.innerHTML = html;
+
+    // Store meanings for addAll
+    area.dataset.word = entry.word;
+    area.dataset.phonetic = phonetic;
+    area.dataset.meanings = JSON.stringify(meanings);
+
+    // Fetch translation per meaning
+    meanings.forEach(async (m, i) => {
+      try {
+        let t = await translate(entry.word, m.pos, m.definition);
+        if(!t) t = await translate(entry.word, m.pos, m.definition);
+        const el = document.getElementById(`sde-txt_${i}`);
+        if(!el) return;
+        el.className = '';
+        el.style.fontFamily = "'Playfair Display',serif";
+        el.style.fontSize = '1.2rem';
+        el.style.fontWeight = '700';
+        el.textContent = t || '–';
+        // store on meanings dataset
+        const stored = JSON.parse(area.dataset.meanings);
+        stored[i].de = t || '';
+        area.dataset.meanings = JSON.stringify(stored);
+        // update add-all button dataset too
+        const btn = document.getElementById('add-all-btn');
+        if(btn) btn.dataset.meanings = area.dataset.meanings;
+      } catch(e) {
+        const el = document.getElementById(`sde-txt_${i}`);
+        if(el) el.textContent = '–';
+      }
+    });
+
+  } catch(e) {
+    area.innerHTML = `<div class="search-error">Kein Eintrag für „${esc(q)}" gefunden.<br>Überprüfe die Schreibweise.</div>`;
+  }
+}
+
+function toggleSDef(i) {
+  const body = document.getElementById(`dbody_${i}`);
+  const tog  = document.getElementById(`dtog_${i}`);
+  if(!body) return;
+  const open = body.classList.toggle('open');
+  tog.classList.toggle('open', open);
+}
+
+function playAudio() { if(audioUrl) new Audio(audioUrl).play().catch(()=>{}); }
+
+async function addAllMeanings(word, phonetic) {
+  const area = document.getElementById('search-results');
+  const meanings = JSON.parse(area.dataset.meanings || '[]');
+
+  // Check if entry exists
+  let entry = vocabs.find(v => v.en.toLowerCase() === word.toLowerCase());
+  if(!entry) {
+    entry = { id: Date.now(), en: word, phonetic, audioUrl: audioUrl||'', meanings: [], correct: 0, wrong: 0 };
+    vocabs.unshift(entry);
+  }
+
+  // Add meanings not yet stored
+  for(const m of meanings) {
+    const exists = entry.meanings.some(em => em.definition === m.definition);
+    if(!exists) {
+      // If translation not yet loaded, fetch it
+      let de = m.de || '';
+      if(!de) {
+        try { de = await translate(word, m.pos, m.definition) || ''; } catch(e){}
+      }
+      entry.meanings.push({ pos: m.pos, de, definition: m.definition, example: m.example || '' });
+    }
+  }
+
+  save();
+  renderVocabs();
+
+  const btn = document.getElementById('add-all-btn');
+  if(btn) { btn.textContent = '✓ Alle bereits gespeichert'; btn.classList.add('added'); }
+}
+
+// ---- DE→EN SEARCH ----
+async function doSearchDE(q) {
+  const area = document.getElementById('search-results');
+  area.innerHTML = `<div class="search-empty"><p>⏳ Übersetze…</p></div>`;
+  try {
+    // Translate DE→EN via MyMemory
+    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=de|en`);
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    let enWord = data?.responseData?.translatedText || '';
+    if(!enWord || enWord.toUpperCase() === q.toUpperCase()) {
+      enWord = (data?.matches||[])[0]?.translation || '';
+    }
+    if(!enWord) throw new Error('no translation');
+
+    // Now look up the English word in the dictionary
+    area.innerHTML = `<div class="search-empty"><p>⏳ Suche „${esc(enWord)}"…</p></div>`;
+
+    // Temporarily switch lang to EN for the lookup, then restore
+    const prevLang = searchLang;
+    searchLang = 'en';
+    document.getElementById('search-inp').value = enWord;
+    await doSearch(enWord);
+    searchLang = prevLang;
+
+  } catch(e) {
+    area.innerHTML = `<div class="search-error">Keine Übersetzung für „${esc(q)}" gefunden.</div>`;
+  }
+}
+
+// ---- MEINE VOKABELN ----
+let currentSort = 'en';
+
+function setSort(mode, btn) {
+  currentSort = mode;
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderVocabs();
+}
+
+function getSorted() {
+  const list = [...vocabs];
+  if(currentSort === 'en') list.sort((a,b) => a.en.localeCompare(b.en));
+  else if(currentSort === 'de') list.sort((a,b) => {
+    const da = (a.meanings[0]?.de||'').toLowerCase();
+    const db = (b.meanings[0]?.de||'').toLowerCase();
+    return da.localeCompare(db);
+  });
+  else if(currentSort === 'pos') list.sort((a,b) => {
+    const pa = (a.meanings[0]?.pos||'').toLowerCase();
+    const pb = (b.meanings[0]?.pos||'').toLowerCase();
+    return pa.localeCompare(pb);
+  });
+  else if(currentSort === 'new') {} // already newest first
+  return list;
+}
+
+function renderVocabs() {
+  const el = document.getElementById('vocabs-list');
+  if(!vocabs.length) {
+    el.innerHTML = `<div class="vocabs-empty"><div class="ei">📖</div><p>Noch keine Vokabeln gespeichert.<br>Im Tab „Suchen" Wörter nachschlagen<br>und hinzufügen.</p></div>`;
+    return;
+  }
+  const list = getSorted();
+  el.innerHTML = list.map(v => {
+    const total = v.correct + v.wrong;
+    const pct = total > 0 ? Math.round(v.correct/total*100)+'%' : '–';
+    const pctCls = total===0?'pct-neu':v.correct>=v.wrong?'pct-good':'pct-bad';
+    const deShort = v.meanings.map(m=>m.de).filter(Boolean).slice(0,2).join(', ') || '–';
+
+    // Group meanings by German translation
+    const groups = [];
+    v.meanings.forEach((m, mi) => {
+      const deKey = (m.de||'–').toLowerCase().trim();
+      const existing = groups.find(g => g.deKey === deKey);
+      if(existing) {
+        existing.items.push({...m, mi});
+      } else {
+        groups.push({ deKey, de: m.de||'–', items: [{...m, mi}] });
+      }
+    });
+
+    const meaningsHtml = groups.map((g, gi) => {
+      const posLabels = [...new Set(g.items.map(m=>m.pos))].map(p=>`<span class="pos-badge">${esc(p)}</span>`).join(' ');
+      const defsHtml = g.items.map((m, di) => {
+        if(!m.definition) return '';
+        return `<div class="v-def-item">
+          <div class="v-def-text">
+            ${g.items.length > 1 ? `<span class="def-num">${di+1}.</span> ` : ''}${esc(m.definition)}
+            ${m.example ? `<div class="v-def-example">${esc(m.example)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+      const hasDefs = g.items.some(m => m.definition);
+      const gid = v.id + '_g' + gi;
+      return `<div class="v-meaning">
+        <div class="v-meaning-head">${posLabels}</div>
+        <div class="v-de-full">${esc(g.de)}</div>
+        ${hasDefs ? `
+        <button class="v-def-toggle" id="vdt_${gid}" onclick="toggleVDef('${gid}')">
+          <span class="arr">›</span> ${g.items.length > 1 ? g.items.filter(m=>m.definition).length + ' Definitionen' : 'Definition'}
+        </button>
+        <div class="v-def-body" id="vdb_${gid}">${defsHtml}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    const hasPhonetic = v.phonetic || v.audioUrl;
+    return `<div class="v-card" id="vc_${v.id}">
+      <div class="v-card-head" onclick="toggleVCard(${v.id})">
+        <span class="v-en">${esc(v.en)}</span>
+        <span class="v-de-short">${esc(deShort)}</span>
+        <span class="v-pct ${pctCls}">${pct}</span>
+        <span class="v-chevron">›</span>
+        <button class="v-del" onclick="event.stopPropagation();deleteVocab(${v.id})">×</button>
+      </div>
+      <div class="v-body" id="vb_${v.id}">
+        <div class="v-body-inner">${meaningsHtml}</div>
+        ${hasPhonetic ? `
+        <button class="v-phonetic-toggle" id="vpt_${v.id}" onclick="toggleVPhonetic(${v.id})">
+          <span class="arr">›</span> 🔊 Aussprache
+        </button>
+        <div class="v-phonetic-body" id="vpb_${v.id}">
+          <div class="v-phonetic-inner">
+            ${v.phonetic ? `<span class="v-phonetic-text">${esc(v.phonetic)}</span>` : ''}
+            ${v.audioUrl ? `<button class="v-audio-btn" onclick="playVAudio('${esc(v.audioUrl)}')">▶ Anhören</button>` : ''}
+          </div>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleVCard(id) {
+  const card = document.getElementById(`vc_${id}`);
+  const body = document.getElementById(`vb_${id}`);
+  if(!card||!body) return;
+  const open = body.classList.toggle('open');
+  card.classList.toggle('open', open);
+}
+
+function toggleVDef(gid) {
+  const body = document.getElementById(`vdb_${gid}`);
+  const tog  = document.getElementById(`vdt_${gid}`);
+  if(!body) return;
+  const open = body.classList.toggle('open');
+  tog.classList.toggle('open', open);
+}
+
+function toggleVPhonetic(id) {
+  const body = document.getElementById(`vpb_${id}`);
+  const tog  = document.getElementById(`vpt_${id}`);
+  if(!body) return;
+  const open = body.classList.toggle('open');
+  tog.classList.toggle('open', open);
+}
+
+function playVAudio(url) {
+  if(url) new Audio(url).play().catch(()=>{});
+}
+
+function deleteVocab(id) {
+  if(!confirm('Vokabel löschen?')) return;
+  vocabs = vocabs.filter(v => v.id !== id);
+  wrongIds.delete(id); save(); renderVocabs();
+}
+
+// ---- TRAIN ----
+function toggleWrongOnly() {
+  wrongOnly = !wrongOnly;
+  document.getElementById('btn-wrong').classList.toggle('active-pill', wrongOnly);
+  startSession();
+}
+function startSession() {
+  let pool = wrongOnly && wrongIds.size > 0 ? vocabs.filter(v=>wrongIds.has(v.id)) : [...vocabs];
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+  session=pool; sessionIdx=0; flipped=false; renderCard();
+}
+
+function renderCard() {
+  const area = document.getElementById('train-area');
+  const prog = document.getElementById('prog');
+  const ctr  = document.getElementById('counter');
+
+  if(!vocabs.length) {
+    area.innerHTML=`<div class="card-placeholder">Füge zuerst Vokabeln hinzu. 🎓</div><div class="ans-btns hidden"><button class="ans-btn didnt"></button><button class="ans-btn knew"></button></div>`;
+    prog.style.width='0%'; ctr.textContent=''; return;
+  }
+  if(!session.length){startSession();return;}
+  if(sessionIdx>=session.length){
+    const right=session.filter(v=>!wrongIds.has(v.id)).length;
+    prog.style.width='100%'; ctr.textContent='';
+    area.innerHTML=`<div class="done-screen">
+      <h2>Runde beendet 🎉</h2>
+      <div class="done-score">${right}/${session.length}</div>
+      <p>Gewusst: <strong>${right}</strong> von <strong>${session.length}</strong></p>
+      ${wrongIds.size>0?`<p style="color:var(--accent)">${wrongIds.size} Wort${wrongIds.size===1?'':'er'} noch unsicher</p>`:'<p style="color:var(--accent2)">Alle richtig! ✨</p>'}
+      <div class="done-btns">
+        <button class="done-btn primary" onclick="startSession()">↺ Nochmal</button>
+        ${wrongIds.size>0?`<button class="done-btn success" onclick="wrongOnly=true;document.getElementById('btn-wrong').classList.add('active-pill');startSession()">🔁 Nur falsche wiederholen</button>`:''}
+      </div>
+    </div>`; return;
+  }
+
+  prog.style.width=(sessionIdx/session.length*100)+'%';
+  ctr.textContent=`${sessionIdx+1} / ${session.length}`;
+
+  const v = session[sessionIdx];
+
+  // Build all definitions for front card
+  const allDefs = v.meanings.filter(m => m.definition);
+  const frontDefsHtml = allDefs.map((m, i) => `
+    <div class="f-def-item">
+      ${allDefs.length > 1 ? `<span class="f-def-num">${i+1}. <span style="font-style:italic;opacity:.6">${esc(m.pos)}</span></span>` : `<span class="f-def-num" style="font-style:italic;opacity:.6">${esc(m.pos)}</span>`}
+      <div>${esc(m.definition)}</div>
+      ${m.example ? `<div class="f-def-eg">${esc(m.example)}</div>` : ''}
+    </div>`).join('');
+
+  // Group meanings by DE for back card
+  const backGroups = [];
+  v.meanings.forEach(m => {
+    const key = (m.de||'–').toLowerCase().trim();
+    const ex = backGroups.find(g => g.key === key);
+    if(ex) { if(!ex.poses.includes(m.pos)) ex.poses.push(m.pos); }
+    else backGroups.push({ key, de: m.de||'–', poses: [m.pos] });
+  });
+  const backMeanings = backGroups.map(g => `
+    <div class="back-meaning">
+      <div class="back-pos">${g.poses.map(p=>esc(p)).join(' · ')}</div>
+      <div class="back-de">${esc(g.de)}</div>
+    </div>`).join('');
+
+  // Render as two separate panels (no 3D flip) for reliable layout
+  area.innerHTML=`
+    <div id="card-front" class="train-panel train-panel-front">
+      <div class="face-lang">🇬🇧 Englisch</div>
+      <div class="face-word">${esc(v.en)}</div>
+      ${allDefs.length ? `
+      <button class="f-def-btn" id="fdb-btn" onclick="toggleFDef(event)">
+        <span class="arr">›</span> ${allDefs.length > 1 ? allDefs.length + ' Definitionen' : 'Definition'}
+      </button>
+      <div class="f-def-area" id="fdb-area">
+        <div class="f-def-inner">${frontDefsHtml}</div>
+      </div>` : ''}
+      <div class="face-hint" id="flip-hint">Tippen zum Aufdecken</div>
+    </div>
+    <div id="card-back" class="train-panel train-panel-back" style="display:none">
+      <div class="face-lang" style="color:rgba(255,255,255,.45)">🇩🇪 Deutsch</div>
+      <div class="back-meanings">${backMeanings}</div>
+    </div>
+    <div class="ans-btns hidden" id="ans-btns">
+      <button class="ans-btn didnt" onclick="answer(false)">✗ Nicht gewusst</button>
+      <button class="ans-btn knew" onclick="answer(true)">✓ Gewusst</button>
+    </div>`;
+
+  // Attach flip on front panel click (but not on def button)
+  document.getElementById('card-front').addEventListener('click', handleFrontClick);
+}
+
+function toggleFDef(e) {
+  e.stopPropagation();
+  const btn = document.getElementById('fdb-btn');
+  const area = document.getElementById('fdb-area');
+  if(!btn||!area) return;
+  const open = area.classList.toggle('open');
+  btn.classList.toggle('open', open);
+}
+function handleFrontClick(e) {
+  if(e.target.closest('#fdb-btn')||e.target.closest('#fdb-area')) return;
+  flipCard();
+}
+function flipCard() {
+  const front = document.getElementById('card-front');
+  const back  = document.getElementById('card-back');
+  const btns  = document.getElementById('ans-btns');
+  if(!front||!back) return;
+  flipped = !flipped;
+  front.style.display = flipped ? 'none' : 'flex';
+  back.style.display  = flipped ? 'flex' : 'none';
+  if(btns) btns.classList.toggle('hidden', !flipped);
+}
+function answer(knew) {
+  const v=session[sessionIdx], voc=vocabs.find(x=>x.id===v.id);
+  if(voc){if(knew){voc.correct++;wrongIds.delete(v.id);}else{voc.wrong++;wrongIds.add(v.id);}save();}
+  sessionIdx++; flipped=false; renderCard();
+}
+
+// ---- STATS ----
+function renderStats() {
+  const total=vocabs.length;
+  const practiced=vocabs.filter(v=>v.correct+v.wrong>0).length;
+  const allC=vocabs.reduce((s,v)=>s+v.correct,0);
+  const allW=vocabs.reduce((s,v)=>s+v.wrong,0);
+  const pct=allC+allW>0?Math.round(allC/(allC+allW)*100):0;
+  document.getElementById('stats-grid').innerHTML=`
+    <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-lbl">Vokabeln</div></div>
+    <div class="stat-card"><div class="stat-num">${practiced}</div><div class="stat-lbl">Geübt</div></div>
+    <div class="stat-card"><div class="stat-num">${allC}</div><div class="stat-lbl">Richtig</div></div>
+    <div class="stat-card"><div class="stat-num" style="color:var(--accent2)">${pct}%</div><div class="stat-lbl">Trefferquote</div></div>`;
+  const pl=vocabs.filter(v=>v.correct+v.wrong>0);
+  const good=[...pl].filter(v=>v.correct>=v.wrong).sort((a,b)=>b.correct-a.correct).slice(0,5);
+  const bad=[...pl].filter(v=>v.wrong>v.correct).sort((a,b)=>b.wrong-a.wrong).slice(0,5);
+  const firstDe = v => v.meanings[0]?.de || '–';
+  document.getElementById('list-good').innerHTML=good.length
+    ?good.map((v,i)=>`<div class="rank-item"><div class="rank-badge rb-good">${i+1}</div><span class="rank-en">${esc(v.en)}</span><span class="rank-de">${esc(firstDe(v))}</span><span class="rank-n">${v.correct}✓</span></div>`).join('')
+    :'<div class="vocabs-empty" style="padding:12px"><p>Noch keine Daten.</p></div>';
+  document.getElementById('list-bad').innerHTML=bad.length
+    ?bad.map((v,i)=>`<div class="rank-item"><div class="rank-badge rb-bad">${i+1}</div><span class="rank-en">${esc(v.en)}</span><span class="rank-de">${esc(firstDe(v))}</span><span class="rank-n">${v.wrong}✗</span></div>`).join('')
+    :'<div class="vocabs-empty" style="padding:12px"><p>Noch keine Daten.</p></div>';
+}
+function resetStats() {
+  if(!confirm('Statistik wirklich zurücksetzen?')) return;
+  vocabs.forEach(v=>{v.correct=0;v.wrong=0;}); wrongIds.clear(); save(); renderStats();
+}
+
+// ---- NAV ----
+function showView(name, btn) {
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  btn.classList.add('active');
+  closeAC();
+  if(name==='vocabs') renderVocabs();
+  if(name==='train') startSession();
+  if(name==='stats') renderStats();
+}
+document.addEventListener('click', e=>{ if(!e.target.closest('.search-wrap')) closeAC(); });
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');}
+
+load(); renderVocabs();
+</script>
+</body>
+</html>
