@@ -212,7 +212,7 @@ body::before {
 
 /* Expanded content */
 .v-body { max-height:0; overflow:hidden; transition:max-height .3s ease; }
-.v-body.open { max-height:600px; }
+.v-body.open { max-height:600px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
 .v-body-inner { padding:0 13px 13px; border-top:1px solid var(--border); }
 
 .v-meaning {
@@ -777,7 +777,7 @@ function renderVocabs() {
     const total = v.correct + v.wrong;
     const pct = total > 0 ? Math.round(v.correct/total*100)+'%' : '–';
     const pctCls = total===0?'pct-neu':v.correct>=v.wrong?'pct-good':'pct-bad';
-    const deShort = v.meanings.map(m=>m.de).filter(Boolean).slice(0,2).join(', ') || '–';
+    const deShort = [...new Set(v.meanings.map(m=>m.de).filter(Boolean))].slice(0,2).join(', ') || '–';
 
     // Group meanings by German translation
     const groups = [];
