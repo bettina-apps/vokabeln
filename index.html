@@ -469,77 +469,19 @@ function save() { localStorage.setItem('vt_v7', JSON.stringify(vocabs)); }
 function load() { try { const d = localStorage.getItem('vt_v7'); if(d) vocabs = JSON.parse(d); } catch(e){} }
 
 // ---- TRANSLATE ----
-function isBadTranslation(t, word) {
-  if(!t) return true;
-  const tClean = t.toLowerCase().replace(/[^a-zäöüß]/g,'');
-  const wClean = word.toLowerCase().replace(/[^a-z]/g,'');
-  if(tClean === wClean) return true;
-  if(t.toLowerCase().trim() === word.toLowerCase().trim()) return true;
-  return false;
-}
-
-// Fetch one translation string from MyMemory
-async function fetchMyMemory(query, langpair) {
-  const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(query)}&langpair=${langpair}`);
-  if(!res.ok) return null;
-  const data = await res.json();
-  let t = data?.responseData?.translatedText || '';
-  // Collect unique good results from matches too
-  const extras = (data?.matches||[])
-    .map(m => m.translation)
-    .filter(m => m && !isBadTranslation(m, query.split('(')[0].trim()));
-  return { main: t, extras };
-}
-
-// Merge and deduplicate translation candidates
-function mergeTranslations(candidates, word, pos) {
-  const seen = new Set();
-  const results = [];
-  for(const raw of candidates) {
-    if(!raw) continue;
-    // Split on comma/semicolon for multiple in one string
-    const parts = raw.split(/[,;\/]/).map(p => p.trim()).filter(Boolean);
-    for(const p of parts) {
-      if(isBadTranslation(p, word)) continue;
-      const normalized = normalizeDe(p, pos);
-      const key = normalized.toLowerCase();
-      if(!seen.has(key)) { seen.add(key); results.push(normalized); }
-    }
-  }
-  return results.slice(0, 6); // max 6 translations
-}
-
 async function translate(word, pos, definition) {
-  const candidates = [];
-
-  // Query 1: plain word
   try {
-    const r = await fetchMyMemory(word, 'en|de');
-    if(r) {
-      if(!isBadTranslation(r.main, word)) candidates.push(r.main);
-      candidates.push(...r.extras);
-    }
+    // Use Netlify Function proxy → Anthropic API
+    const res = await fetch('/.netlify/functions/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ word, pos, definition })
+    });
+    if(!res.ok) throw new Error('proxy error');
+    const data = await res.json();
+    const t = data.translation || '';
+    if(t) return t;
   } catch(e) {}
-
-  // Query 2: word with pos context (often gives different result)
-  try {
-    const r = await fetchMyMemory(`${word} (${pos})`, 'en|de');
-    if(r && !isBadTranslation(r.main, word)) candidates.push(r.main);
-  } catch(e) {}
-
-  // Query 3: first few words of definition (gives contextual translation)
-  if(definition) {
-    const defSnippet = definition.split(' ').slice(0,6).join(' ');
-    try {
-      const r = await fetchMyMemory(defSnippet, 'en|de');
-      // From definition translation, extract just plausible single-word translations
-      if(r && r.extras.length) candidates.push(...r.extras);
-    } catch(e) {}
-  }
-
-  const merged = mergeTranslations(candidates, word, pos);
-  if(merged.length) return merged.join(', ');
-
   return null;
 }
 
