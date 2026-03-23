@@ -5,34 +5,55 @@ exports.handler = async function(event) {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  let word, pos, definition;
-  try {
-    const body = JSON.parse(event.body || '{}');
-    word = body.word; pos = body.pos; definition = body.definition;
-  } catch(e) {
-    return { statusCode: 400, body: 'Bad request' };
+  const { word, pos, definition } = JSON.parse(event.body || '{}');
+  const apiKey = process.env.DEEPL_API_KEY;
+
+  if (!apiKey) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'API key missing' }) };
   }
 
-  if (!word) return { statusCode: 400, body: 'Missing word' };
+  // Build a context-aware text for DeepL
+  // We translate the word itself, with context from definition
+  const textToTranslate = word;
 
-  const prompt = `Translate the English word "${word}" (part of speech: ${pos || 'unknown'}, meaning: "${definition || ''}") into German.\n\nReturn ALL common German translations, separated by commas.\n- For nouns: capitalize (e.g. "Göre, Balg, Fratz")\n- For verbs: infinitive, lowercase (e.g. "bellen, kläffen")\n- For adjectives/adverbs: lowercase\n- Include synonyms and regional variants where relevant\n- Maximum 6 translations\n- ONLY the German words, no explanations, no numbering`;
+  try {
+    const result = await deepLTranslate(textToTranslate, apiKey, definition);
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ translation: result })
+    };
+  } catch (err) {
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+  }
+};
 
-  const requestBody = JSON.stringify({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 100,
-    messages: [{ role: 'user', content: prompt }]
-  });
+function deepLTranslate(text, apiKey, context) {
+  return new Promise((resolve, reject) => {
+    const isFreeKey = apiKey.endsWith(':fx');
+    const host = isFreeKey ? 'api-free.deepl.com' : 'api.deepl.com';
 
-  return new Promise((resolve) => {
+    const params = new URLSearchParams({
+      text: text,
+      source_lang: 'EN',
+      target_lang: 'DE'
+    });
+
+    // Add context if available (improves translation accuracy)
+    if (context) {
+      params.append('context', context);
+    }
+
+    const postData = params.toString();
+
     const options = {
-      hostname: 'api.anthropic.com',
-      path: '/v1/messages',
+      hostname: host,
+      path: '/v2/translate',
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'Content-Length': Buffer.byteLength(requestBody)
+        'Authorization': `DeepL-Auth-Key ${apiKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData)
       }
     };
 
@@ -41,24 +62,20 @@ exports.handler = async function(event) {
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
         try {
-          const parsed = JSON.parse(data);
-          const translation = parsed?.content?.[0]?.text?.trim() || '';
-          resolve({
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-            body: JSON.stringify({ translation })
-          });
-        } catch(e) {
-          resolve({ statusCode: 500, body: JSON.stringify({ error: 'Parse error', raw: data }) });
+          const json = JSON.parse(data);
+          if (json.translations && json.translations[0]) {
+            resolve(json.translations[0].text);
+          } else {
+            reject(new Error('No translation returned: ' + data));
+          }
+        } catch (e) {
+          reject(new Error('Parse error: ' + data));
         }
       });
     });
 
-    req.on('error', (e) => {
-      resolve({ statusCode: 500, body: JSON.stringify({ error: e.message }) });
-    });
-
-    req.write(requestBody);
+    req.on('error', reject);
+    req.write(postData);
     req.end();
   });
-};
+}
