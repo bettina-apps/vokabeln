@@ -212,8 +212,8 @@ body::before {
 .v-audio-btn:active { background:var(--ink); color:#fff; border-color:var(--ink); }
 
 /* Expanded content */
-.v-body { max-height:0; overflow:hidden; transition:max-height .3s ease; border-radius:0 0 14px 14px; }
-.v-body.open { max-height:50vh; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+.v-body { max-height:0; overflow:hidden; transition:max-height .5s ease; border-radius:0 0 14px 14px; }
+.v-body.open { max-height:2000px; overflow:visible; }
 .v-body-inner { padding:0 13px 13px; border-top:1px solid var(--border); }
 
 .v-meaning {
@@ -229,8 +229,8 @@ body::before {
 }
 .v-def-toggle .arr { display:inline-block; transition:transform .2s; }
 .v-def-toggle.open .arr { transform:rotate(90deg); }
-.v-def-body { max-height:0; overflow:hidden; transition:max-height .25s ease; }
-.v-def-body.open { max-height:160px; }
+.v-def-body { max-height:0; overflow:hidden; transition:max-height .4s ease; }
+.v-def-body.open { max-height:1000px; }
 .v-def-text { font-size:12px; color:var(--muted); line-height:1.6; padding:4px 0; }
 .v-def-example { font-style:italic; margin-top:3px; }
 .v-def-example::before{content:'"';} .v-def-example::after{content:'"';}
