@@ -172,7 +172,7 @@ body::before {
 /* Vocab entry card */
 .v-card {
   background:var(--card-bg); border:1.5px solid var(--border);
-  border-radius:14px; margin-bottom:9px; overflow:hidden;
+  border-radius:14px; margin-bottom:9px; overflow:visible;
   animation:fadeUp .2s ease;
 }
 .v-card-head {
@@ -212,7 +212,7 @@ body::before {
 .v-audio-btn:active { background:var(--ink); color:#fff; border-color:var(--ink); }
 
 /* Expanded content */
-.v-body { max-height:0; overflow:hidden; transition:max-height .3s ease; }
+.v-body { max-height:0; overflow:hidden; transition:max-height .3s ease; border-radius:0 0 14px 14px; }
 .v-body.open { max-height:50vh; overflow-y:auto; -webkit-overflow-scrolling:touch; }
 .v-body-inner { padding:0 13px 13px; border-top:1px solid var(--border); }
 
