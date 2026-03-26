@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Vokabeln">
@@ -16,7 +16,8 @@
   --accent: #c0392b; --accent2: #2c6e49; --muted: #8a8070; --border: #d4ccbc;
   --safe-top: env(safe-area-inset-top,0px); --safe-bottom: env(safe-area-inset-bottom,0px);
 }
-html,body { height:100%; overflow:hidden; }
+html { height:100%; overflow:hidden; }
+body { height:100%; overflow:hidden; }
 @supports (height: 100dvh) { body { height:100dvh; } }
 body {
   font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--ink);
@@ -1057,6 +1058,15 @@ document.addEventListener('click', e=>{ if(!e.target.closest('.search-wrap')) cl
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;');}
 
 load(); renderVocabs();
+
+// Fix iOS keyboard pushing layout
+window.addEventListener('focusin', function(e) {
+  if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    setTimeout(() => {
+      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+  }
+});
 </script>
 </body>
 </html>
