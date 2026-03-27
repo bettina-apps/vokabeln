@@ -373,6 +373,49 @@ body::before {
 .rank-de { color:var(--muted); font-style:italic; font-size:12px; }
 .rank-n { font-family:'DM Mono',monospace; font-size:11px; color:var(--muted); }
 .reset-btn { display:block; width:100%; margin-top:18px; padding:13px; border-radius:12px; border:1.5px solid var(--border); background:var(--card-bg); color:var(--accent); font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+
+/* Add meaning form */
+.add-meaning-btn {
+  display:flex; align-items:center; gap:6px; width:100%;
+  padding:10px 13px; border:none; background:none;
+  color:var(--accent2); font-family:'DM Sans',sans-serif;
+  font-size:13px; font-weight:600; cursor:pointer;
+  border-top:1px solid var(--border); text-align:left;
+  -webkit-tap-highlight-color:transparent;
+}
+.add-meaning-form {
+  padding:12px 13px; border-top:1px solid var(--border);
+  background:var(--bg); display:none;
+}
+.add-meaning-form.open { display:block; }
+.amf-row { display:flex; flex-direction:column; gap:8px; }
+.amf-label { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:2px; }
+.amf-inp {
+  width:100%; padding:9px 11px; border:1.5px solid var(--border);
+  border-radius:10px; background:var(--card-bg);
+  font-family:'DM Sans',sans-serif; font-size:14px; color:var(--ink);
+  outline:none; -webkit-appearance:none;
+}
+.amf-inp:focus { border-color:var(--accent2); }
+.amf-select {
+  width:100%; padding:9px 11px; border:1.5px solid var(--border);
+  border-radius:10px; background:var(--card-bg);
+  font-family:'DM Sans',sans-serif; font-size:14px; color:var(--ink);
+  outline:none; -webkit-appearance:none;
+}
+.amf-btns { display:flex; gap:8px; margin-top:4px; }
+.amf-save {
+  flex:1; padding:10px; border-radius:10px; border:none;
+  background:var(--accent2); color:#fff;
+  font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600;
+  cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+.amf-cancel {
+  padding:10px 16px; border-radius:10px;
+  border:1.5px solid var(--border); background:var(--card-bg);
+  font-family:'DM Sans',sans-serif; font-size:14px; color:var(--muted);
+  cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
 </style>
 </head>
 <body>
@@ -853,6 +896,35 @@ function renderVocabs() {
             ${v.audioUrl ? `<button class="v-audio-btn" onclick="playVAudio('${esc(v.audioUrl)}')">▶ Anhören</button>` : ''}
           </div>
         </div>` : ''}
+        <button class="add-meaning-btn" onclick="event.stopPropagation();toggleAddMeaning(${v.id})">
+          ＋ Bedeutung hinzufügen
+        </button>
+        <div class="add-meaning-form" id="amf_${v.id}">
+          <div class="amf-row">
+            <div>
+              <div class="amf-label">Wortart</div>
+              <select class="amf-select" id="amf-pos_${v.id}">
+                <option value="noun">noun</option>
+                <option value="verb">verb</option>
+                <option value="adjective">adjective</option>
+                <option value="adverb">adverb</option>
+                <option value="other">other</option>
+              </select>
+            </div>
+            <div>
+              <div class="amf-label">Deutsche Übersetzung</div>
+              <input class="amf-inp" id="amf-de_${v.id}" type="text" placeholder="z.B. Göre, Balg">
+            </div>
+            <div>
+              <div class="amf-label">Englische Definition (optional)</div>
+              <input class="amf-inp" id="amf-def_${v.id}" type="text" placeholder="z.B. a badly behaved child">
+            </div>
+            <div class="amf-btns">
+              <button class="amf-save" onclick="saveMeaning(${v.id})">Speichern</button>
+              <button class="amf-cancel" onclick="toggleAddMeaning(${v.id})">Abbrechen</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -884,6 +956,33 @@ function toggleVPhonetic(id) {
 
 function playVAudio(url) {
   if(url) new Audio(url).play().catch(()=>{});
+}
+
+function toggleAddMeaning(id) {
+  const form = document.getElementById(`amf_${id}`);
+  if(!form) return;
+  const open = form.classList.toggle('open');
+  if(open) {
+    setTimeout(() => document.getElementById(`amf-de_${id}`)?.focus(), 100);
+  }
+}
+
+function saveMeaning(id) {
+  const vocab = vocabs.find(v => v.id === id);
+  if(!vocab) return;
+  const pos = document.getElementById(`amf-pos_${id}`)?.value || 'noun';
+  const de  = document.getElementById(`amf-de_${id}`)?.value.trim() || '';
+  const def = document.getElementById(`amf-def_${id}`)?.value.trim() || '';
+  if(!de) { alert('Bitte eine deutsche Übersetzung eingeben.'); return; }
+  vocab.meanings.push({ pos, de, definition: def, example: '' });
+  save();
+  renderVocabs();
+  // Re-open the card
+  setTimeout(() => {
+    const card = document.getElementById(`vc_${id}`);
+    const body = document.getElementById(`vb_${id}`);
+    if(card && body) { body.classList.add('open'); card.classList.add('open'); }
+  }, 50);
 }
 
 function deleteVocab(id) {
