@@ -155,6 +155,14 @@ body::before {
 .def-example { margin-top:4px; font-style:italic; }
 .def-example::before { content:'"'; } .def-example::after { content:'"'; }
 
+.s-add-btn {
+  margin-left:auto; flex-shrink:0; padding:5px 13px; border-radius:20px;
+  border:1.5px solid var(--accent2); background:#edf7f1; color:var(--accent2);
+  font-family:'DM Sans',sans-serif; font-size:13px; font-weight:700;
+  cursor:pointer; -webkit-tap-highlight-color:transparent; transition:all .15s;
+}
+.s-add-btn:active { background:var(--accent2); color:#fff; }
+.s-add-btn.added { background:var(--accent2); color:#fff; pointer-events:none; }
 .search-empty { text-align:center; padding:36px 16px; color:var(--muted); }
 .search-empty .ei { font-size:42px; margin-bottom:10px; }
 .search-empty p { font-size:14px; line-height:1.7; }
@@ -835,10 +843,14 @@ async function doSearch(force) {
       ${alreadyAll ? '✓ Alle bereits gespeichert' : '＋ Alle Bedeutungen hinzufügen'}
     </button>`;
 
+    const existingEntry = vocabs.find(v => v.en.toLowerCase() === entry.word.toLowerCase());
     meanings.forEach((m, i) => {
+      const alreadyThis = existingEntry && existingEntry.meanings.some(em => em.definition === m.definition);
       html += `<div class="s-meaning">
         <div class="s-meaning-top">
           <span class="pos-badge">${esc(m.pos)}</span>
+          <button class="s-add-btn ${alreadyThis?'added':''}" id="sadd_${i}"
+            onclick="addSingleMeaning(${i})">${alreadyThis ? '✓' : '＋ Hinzufügen'}</button>
         </div>
         <div class="s-de" id="sde_${i}">
           🇩🇪 <span class="s-de-loading" id="sde-txt_${i}">wird übersetzt…</span>
@@ -889,6 +901,35 @@ async function doSearch(force) {
   } catch(e) {
     area.innerHTML = `<div class="search-error">Kein Eintrag für „${esc(q)}" gefunden.<br>Überprüfe die Schreibweise.</div>`;
   }
+}
+
+async function addSingleMeaning(i) {
+  const area = document.getElementById('search-results');
+  const word = area.dataset.word;
+  const phonetic = area.dataset.phonetic || '';
+  const meanings = JSON.parse(area.dataset.meanings || '[]');
+  const m = meanings[i];
+  if(!m) return;
+
+  const btn = document.getElementById('sadd_' + i);
+  if(btn) { btn.textContent = '…'; btn.disabled = true; }
+
+  let entry = vocabs.find(v => v.en.toLowerCase() === word.toLowerCase());
+  if(!entry) {
+    entry = { id: Date.now(), en: word, phonetic, audioUrl: audioUrl||'', meanings: [], correct: 0, wrong: 0 };
+    vocabs.unshift(entry);
+  }
+
+  const exists = entry.meanings.some(em => em.definition === m.definition);
+  if(!exists) {
+    let de = m.de || '';
+    if(!de) { try { de = await translate(word, m.pos, m.definition) || ''; } catch(e){} }
+    entry.meanings.push({ pos: m.pos, de, definition: m.definition, example: m.example || '' });
+    save();
+    renderVocabs();
+  }
+
+  if(btn) { btn.textContent = '✓'; btn.classList.add('added'); btn.disabled = true; }
 }
 
 function toggleSDef(i) {
