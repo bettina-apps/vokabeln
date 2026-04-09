@@ -524,6 +524,11 @@ body::before {
       <div class="section-title" style="margin-top:16px">🔁 Noch zu üben</div>
       <div class="rank-list" id="list-bad"></div>
       <button class="reset-btn" onclick="resetStats()">Statistik zurücksetzen</button>
+      <button class="reset-btn" style="color:var(--accent2);border-color:var(--accent2);margin-top:8px" onclick="exportVocabs()">⬇ Backup exportieren</button>
+      <label class="reset-btn" style="color:var(--accent2);border-color:var(--accent2);margin-top:8px;display:block;text-align:center;cursor:pointer">
+        ⬆ Backup importieren
+        <input type="file" id="import-file-inp" accept=".json" style="display:none" onchange="importVocabs(this)">
+      </label>
       <button class="reset-btn" style="color:var(--accent2);border-color:var(--accent2);margin-top:8px" onclick="showSyncModal()">☁️ Sync-Code ändern / einrichten</button>
 
     </div>
@@ -609,10 +614,15 @@ function startSync(code) {
     if(doc.exists) {
       const data = doc.data();
       if(Array.isArray(data.vocabs)) {
-        // Nur übernehmen wenn Firestore neuer ist als lokaler Stand
         const remoteTime = data.updated || 0;
         const localTime  = parseInt(localStorage.getItem('vt_lastsave') || '0');
-        if(remoteTime > localTime) {
+        const hasPreviousSync = localTime > 0;
+        // Firebase-Daten nur übernehmen wenn:
+        // - Dieses Gerät noch keine lokalen Daten hat (neues Gerät), ODER
+        // - Bereits synchronisiert wurde UND Firebase neuer ist
+        const shouldUpdate = (vocabs.length === 0 && !hasPreviousSync) ||
+                             (hasPreviousSync && remoteTime > localTime);
+        if(shouldUpdate) {
           vocabs = data.vocabs;
           localStorage.setItem('vt_v7', JSON.stringify(vocabs));
           localStorage.setItem('vt_lastsave', remoteTime);
@@ -1396,6 +1406,41 @@ function renderStats() {
 function resetStats() {
   if(!confirm('Statistik wirklich zurücksetzen?')) return;
   vocabs.forEach(v=>{v.correct=0;v.wrong=0;}); wrongIds.clear(); save(); renderStats();
+}
+
+function exportVocabs() {
+  if(!vocabs.length) { alert('Keine Vokabeln zum Exportieren.'); return; }
+  const json = JSON.stringify(vocabs, null, 2);
+  const blob = new Blob([json], {type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'vokabeln-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importVocabs(input) {
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if(!Array.isArray(data)) throw new Error();
+      if(!confirm(data.length + ' Vokabeln importieren?\nBestehende Daten werden ersetzt.')) {
+        input.value = ''; return;
+      }
+      vocabs = data;
+      save();
+      renderVocabs();
+      alert('✅ ' + data.length + ' Vokabeln erfolgreich importiert!');
+    } catch(err) {
+      alert('Fehler: Bitte eine gültige Backup-Datei (.json) auswählen.');
+    }
+    input.value = '';
+  };
+  reader.readAsText(file);
 }
 
 
